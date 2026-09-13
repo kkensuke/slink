@@ -1,0 +1,8 @@
+[package]
+name = "slink"
+version = "0.1.0"
+edition = "2021"
+description = "A managed symbolic-link CLI for macOS"
+repository = "https://github.com/kkensuke/slink"
+
+[dependencies]
