@@ -224,8 +224,7 @@ fn projected_health(
         !matches!(
             result.action,
             MutationAction::Remove | MutationAction::Unregister
-        ) && paths::key(&result.link)
-            .unwrap_or_else(|_| result.link.to_string_lossy().into_owned())
+        ) && paths::key(&result.link).unwrap_or_else(|_| result.link.to_string_lossy().into_owned())
             == key
     });
     let Some(result) = planned else {
