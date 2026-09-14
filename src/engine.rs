@@ -329,7 +329,9 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
     for (index, link) in links.iter().enumerate() {
         let entry = &r.entries[r.find(link)?.context("not registered")?];
         let target = paths::target_path(link, &entry.target);
-        dependencies[index] = indexes.get(&stable_path_key(&target)).copied();
+        dependencies[index] = target
+            .ancestors()
+            .find_map(|ancestor| indexes.get(&stable_path_key(ancestor)).copied());
     }
 
     fn visit(
