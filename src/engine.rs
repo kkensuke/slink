@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -311,6 +311,52 @@ fn plan_remove(r: &Registry, args: &Args, entry: Entry) -> Result<Plan> {
     })
 }
 
+fn stable_path_key(path: &Path) -> String {
+    paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
+}
+
+fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut seen = HashSet::new();
+    links.retain(|link| seen.insert(stable_path_key(link)));
+    links.sort_by_key(|link| stable_path_key(link));
+
+    let indexes = links
+        .iter()
+        .enumerate()
+        .map(|(index, link)| (stable_path_key(link), index))
+        .collect::<HashMap<_, _>>();
+    let mut dependencies = vec![None; links.len()];
+    for (index, link) in links.iter().enumerate() {
+        let entry = &r.entries[r.find(link)?.context("not registered")?];
+        let target = paths::target_path(link, &entry.target);
+        dependencies[index] = indexes.get(&stable_path_key(&target)).copied();
+    }
+
+    fn visit(index: usize, dependencies: &[Option<usize>], state: &mut [u8], order: &mut Vec<usize>) {
+        if state[index] == 2 {
+            return;
+        }
+        if state[index] == 1 {
+            // A dependency cycle has no topological order. The outer stable
+            // path ordering gives the cycle a deterministic fallback order.
+            return;
+        }
+        state[index] = 1;
+        if let Some(dependency) = dependencies[index] {
+            visit(dependency, dependencies, state, order);
+        }
+        state[index] = 2;
+        order.push(index);
+    }
+
+    let mut state = vec![0; links.len()];
+    let mut order = Vec::with_capacity(links.len());
+    for index in 0..links.len() {
+        visit(index, &dependencies, &mut state, &mut order);
+    }
+    Ok(order.into_iter().map(|index| links[index].clone()).collect())
+}
+
 fn mutate_many(
     r: &mut Registry,
     args: &Args,
@@ -344,6 +390,9 @@ fn mutate_many(
             .collect::<Result<Vec<_>>>()?
     };
     paths_to_visit.retain(|p| Some(p.as_path()) != recovered);
+    if args.command == Command::Fix {
+        paths_to_visit = order_fix_paths(r, paths_to_visit)?;
+    }
     let mut seen = HashSet::new();
     for link in paths_to_visit {
         if !seen.insert(paths::key(&link).unwrap_or_else(|_| link.to_string_lossy().into_owned())) {
