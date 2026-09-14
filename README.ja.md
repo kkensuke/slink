@@ -29,10 +29,16 @@ slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
 これで `/Users/you/.config/nvim` というシンボリックリンクが作られ、`/Users/you/dotfiles/nvim` を指します。`--parents` は、リンクを置く親ディレクトリ `/Users/you/.config` がなければ作成します。すでに `/Users/you/.config/nvim` に通常のファイルやディレクトリがある場合は上書きしません。
 
 ```mermaid
-flowchart LR
-    L["/Users/you/.config/nvim\n管理するリンク"] == "target" ==> T["/Users/you/dotfiles/nvim\n参照先"]
-    R["links.toml\n管理ファイル"] -. "link / target を記録" .-> L
+flowchart TB
+    R["管理ファイル<br/>links.toml"]
+    L["管理するリンク<br/>/Users/you/.config/nvim"]
+    T["参照先<br/>/Users/you/dotfiles/nvim"]
+
+    R -. "link / target を記録" .-> L
+    L == "target" ==> T
 ```
+
+図の `links.toml` は既定のファイル名です。固定名ではなく、`--file` で任意の名前・場所を選べます。既定の場所は後述の[ファイルの選択](#ファイルの選択)を参照してください。
 
 管理ファイルには概ね次のように保存されます。
 
@@ -114,12 +120,14 @@ target文字列は完全一致で比較します。異なる文字列が最終�
 
 次の例では、カレントディレクトリを `/Users/you/demo`、管理ファイルを `/Users/you/demo/config/links.toml` とします。
 
-| 入力 | 基準 | 例 |
+| 入力 | 基準・規則 | 例 |
 | --- | --- | --- |
 | CLIの `--file config/links.toml` | カレントディレクトリ | `/Users/you/demo/config/links.toml` |
 | CLIのlink引数 `run/nvim` | カレントディレクトリ | `/Users/you/demo/run/nvim` |
 | 管理ファイルの `link = "../run/nvim"` | 管理ファイルのあるディレクトリ | `/Users/you/demo/run/nvim` |
 | 相対target文字列 `../dotfiles/nvim` | リンクの親ディレクトリ | linkが `/Users/you/demo/run/nvim` なら `/Users/you/demo/dotfiles/nvim` |
+| CLIのtarget引数 `dotfiles/nvim`（`--relative` なし） | 文字列をそのまま格納。保存後はリンクの親ディレクトリから辿る | `dotfiles/nvim` を格納し、`/Users/you/demo/run/dotfiles/nvim` を参照 |
+| CLIのtarget引数 `dotfiles/nvim`（`--relative` あり） | カレントディレクトリから解釈し、リンクの親ディレクトリからの相対パスへ変換 | `../dotfiles/nvim` を格納し、`/Users/you/demo/dotfiles/nvim` を参照 |
 
 相対targetがリンクの親ディレクトリを基準にするのは、OSがシンボリックリンクをその規則で辿るためです。リンクを辿るときに、管理ファイルの場所は使われません。
 

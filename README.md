@@ -29,10 +29,16 @@ slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
 This creates the symbolic link `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`. `--parents` creates the link parent directory `/Users/you/.config` if it is missing. If an ordinary file or directory already exists at `/Users/you/.config/nvim`, slink does not overwrite it.
 
 ```mermaid
-flowchart LR
-    L["/Users/you/.config/nvim\nmanaged link"] == "target" ==> T["/Users/you/dotfiles/nvim\nreferenced path"]
-    R["links.toml\nregistry file"] -. "records link / target" .-> L
+flowchart TB
+    R["registry file<br/>links.toml"]
+    L["managed link<br/>/Users/you/.config/nvim"]
+    T["referenced path<br/>/Users/you/dotfiles/nvim"]
+
+    R -. "records link / target" .-> L
+    L == "target" ==> T
 ```
+
+`links.toml` is the default file name shown in the diagram. It is not fixed: `--file` can select any file name and location. See [Selecting a file](#selecting-a-file) below for the default location.
 
 The registry file contains roughly:
 
@@ -114,12 +120,14 @@ Absolute paths begin with `/` and do not depend on a starting directory. Relativ
 
 This example uses `/Users/you/demo` as the working directory and `/Users/you/demo/config/links.toml` as the registry file.
 
-| Input | Starting point | Example result |
+| Input | Starting point or rule | Example result |
 | --- | --- | --- |
 | CLI `--file config/links.toml` | Working directory | `/Users/you/demo/config/links.toml` |
 | CLI link argument `run/nvim` | Working directory | `/Users/you/demo/run/nvim` |
 | Registry `link = "../run/nvim"` | Registry file directory | `/Users/you/demo/run/nvim` |
 | Relative target text `../dotfiles/nvim` | Link parent directory | If the link is `/Users/you/demo/run/nvim`, it refers to `/Users/you/demo/dotfiles/nvim` |
+| CLI target `dotfiles/nvim` without `--relative` | Store the text unchanged; once stored, follow it from the link parent directory | Stores `dotfiles/nvim`, referring to `/Users/you/demo/run/dotfiles/nvim` |
+| CLI target `dotfiles/nvim` with `--relative` | Interpret it from the working directory, then convert it to a path relative to the link parent directory | Stores `../dotfiles/nvim`, referring to `/Users/you/demo/dotfiles/nvim` |
 
 A relative target starts from the link parent directory because that is how the operating system follows symbolic links. The registry file location is not involved when the link itself is followed.
 
