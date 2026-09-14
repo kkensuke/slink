@@ -73,7 +73,17 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
     let mut visited = HashSet::new();
     let mut stack: Vec<PathBuf> = roots
         .iter()
-        .map(|root| paths::absolute(Path::new(root)))
+        .map(|root| {
+            // A trailing slash makes lstat follow the final symlink. Strip only
+            // separators; keep '..' and intermediate symlinks in their OS order.
+            let trimmed = root.trim_end_matches('/');
+            let root = if !root.is_empty() && trimmed.is_empty() {
+                "/"
+            } else {
+                trimmed
+            };
+            paths::absolute(Path::new(root))
+        })
         .collect::<Result<_>>()?;
 
     while let Some(dir) = stack.pop() {

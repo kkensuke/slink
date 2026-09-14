@@ -94,3 +94,20 @@ fn scan_reports_traversal_errors_separately_and_returns_one() {
     assert!(stdout.contains("cannot scan"));
     assert!(stdout.contains("scan roots must be directories, not symlinks"));
 }
+
+#[test]
+fn scan_rejects_symlink_roots_with_or_without_trailing_separators() {
+    let f = Fixture::new();
+    fs::write(f.root.join("links.toml"), "version = 1\n").unwrap();
+    fs::create_dir(f.root.join("outside")).unwrap();
+    symlink("missing", f.root.join("outside/item")).unwrap();
+    symlink("outside", f.root.join("alias")).unwrap();
+    for root in ["alias", "alias/", "alias///"] {
+        let output = f.run(&["scan", root]);
+        assert_eq!(output.status.code(), Some(1), "root={root}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("scan roots must be directories, not symlinks"));
+        assert!(!stdout.contains("alias/item"));
+    }
+    assert!(f.run(&["scan", "outside/"]).status.success());
+}
