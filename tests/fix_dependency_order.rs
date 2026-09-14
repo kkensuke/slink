@@ -167,14 +167,14 @@ fn fix_dependency_order_uses_the_planned_replacement_target() {
     symlink(f.path("old/place"), f.path("a-link")).unwrap();
     f.write_entries(&[
         ("m-top", "a-link/../z-link/child"),
-        ("z-link", "source-z"),
+        ("new/z-link", "source-z"),
         ("a-link", "new/place"),
     ]);
 
     let output = f.ok(&["fix", "-f"]);
     let stdout = String::from_utf8(output.stdout).unwrap();
     let a = stdout.find("a-link").unwrap();
-    let z = stdout.find("z-link").unwrap();
+    let z = stdout.find("new/z-link").unwrap();
     let top = stdout.find("m-top").unwrap();
 
     assert!(a < top, "stdout={stdout:?}");
