@@ -243,7 +243,8 @@ fn dry_run_shares_plan_without_false_missing_warning_or_writes() {
     let f = Fixture::new();
     fs::write(f.path("source"), "ok").unwrap();
     let output = f.ok(&["-np", "source", "deep/link"]);
-    assert!(!String::from_utf8_lossy(&output.stderr).contains("MISSING"));
+    assert!(output.stderr.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("target is missing"));
     assert!(!f.path("deep").exists());
     assert!(!f.path("config").exists());
     symlink("old", f.path("link")).unwrap();

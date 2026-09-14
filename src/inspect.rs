@@ -109,7 +109,7 @@ pub fn snapshot(p: &Path) -> Result<Option<Snapshot>> {
         Err(e) => return Err(e.into()),
     };
     if !m.file_type().is_symlink() {
-        bail!("CONFLICT: not a symlink: {p:?}");
+        bail!("expected a symlink: {p:?}");
     }
     let target = paths::text(&fs::read_link(p)?)?.to_owned();
     let after = fs::symlink_metadata(p)?;

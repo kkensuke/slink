@@ -1,7 +1,8 @@
 use crate::{
     cli::{Args, Command, HELP},
     inspect::{self, Snapshot},
-    output, paths,
+    output::{self, MutationAction, MutationOutput, MutationResult},
+    paths,
     registry::{Entry, Registry},
     transaction::{self, Operation, Request},
 };
@@ -55,6 +56,7 @@ pub fn run(args: Args) -> Result<u8> {
     if args.dry_run {
         r.verify()?;
     }
+    let mut report = MutationOutput::new(args.command, args.dry_run);
     let mut recovered = None;
     if let Some(p) = transaction::load(&r)? {
         let same_request = p.request == Request::from(&args);
@@ -69,36 +71,47 @@ pub fn run(args: Args) -> Result<u8> {
                     .any(|s| paths::link_from_cli(s).is_ok_and(|x| x == p.link))
         };
         if !same_request || !same_selection || args.keep_link {
-            bail!("PENDING: repeat the original operation with the same target and options before making other changes");
+            bail!("incomplete operation; repeat the original operation with the same target and options before making other changes");
         }
-        if args.dry_run {
-            transaction::preview(&mut r, &p)?;
-            outln!("WOULD_RECOVER\t{:?}\t{:?}", p.op, p.link);
+        let recovery = if args.dry_run {
+            transaction::preview(&mut r, &p)
         } else {
-            transaction::finish(&mut r, &p)
-                .context("recovery stopped; pending operation retained")?;
-            outln!("RECOVERED\t{:?}", p.link);
+            transaction::finish(&mut r, &p).context("recovery stopped; pending operation retained")
+        };
+        if let Err(error) = recovery {
+            report.failure(&p.link, &error);
+            report.finish();
+            return Ok(2);
         }
-        if args.command != Command::Remove {
-            output::warn_target(&p.link, &p.entry.target);
-        }
+        report.record(MutationResult {
+            action: match p.op {
+                Operation::Create => MutationAction::Create,
+                Operation::Replace => MutationAction::Replace,
+                Operation::Remove => MutationAction::Remove,
+            },
+            link: p.link.clone(),
+            target: p.entry.target,
+            parent: None,
+            recovered: true,
+        });
         if args.command == Command::Create {
-            return Ok(0);
+            return Ok(report.finish());
         }
         recovered = Some(p.link);
     }
-    let result = if args.command == Command::Create {
-        plan_create(&r, &args).and_then(|plan| plan.apply(&mut r, &args))
-    } else {
-        return mutate_many(&mut r, &args, recovered.as_deref());
-    };
-    match result {
-        Ok(()) => Ok(0),
-        Err(error) => {
-            eprintln!("slink: {error:#}");
-            Ok(1)
+    if args.command == Command::Create {
+        match plan_create(&r, &args).and_then(|plan| plan.apply(&mut r, &args)) {
+            Ok(result) => report.record(result),
+            Err(error) => {
+                let link = paths::from_cli(&args.operands[1])
+                    .unwrap_or_else(|_| PathBuf::from(&args.operands[1]));
+                report.failure(&link, &error);
+            }
         }
+    } else {
+        mutate_many(&mut r, &args, recovered.as_deref(), &mut report)?;
     }
+    Ok(report.finish())
 }
 
 fn selected(r: &Registry, operands: &[String]) -> Result<Vec<Entry>> {
@@ -147,7 +160,7 @@ struct Plan {
 }
 
 impl Plan {
-    fn apply(self, r: &mut Registry, args: &Args) -> Result<()> {
+    fn apply(self, r: &mut Registry, args: &Args) -> Result<MutationResult> {
         if !args.dry_run {
             r.verify()?;
         }
@@ -158,42 +171,25 @@ impl Plan {
                     bail!("link changed before registration: {:?}", self.link);
                 }
                 if registry_changes {
-                    "REGISTER"
+                    MutationAction::Register
                 } else {
-                    "UNCHANGED"
+                    MutationAction::Unchanged
                 }
             }
             Change::Keep(None) => {
                 if registry_changes {
-                    "UNREGISTER"
+                    MutationAction::Unregister
                 } else {
-                    "UNCHANGED"
+                    MutationAction::Unchanged
                 }
             }
-            Change::Create => {
-                if registry_changes {
-                    "CREATE+REGISTER"
-                } else {
-                    "CREATE"
-                }
-            }
-            Change::Replace(_) => {
-                if registry_changes {
-                    "REPLACE+REGISTER"
-                } else {
-                    "REPLACE"
-                }
-            }
-            Change::Remove(_) => "REMOVE+UNREGISTER",
+            Change::Create => MutationAction::Create,
+            Change::Replace(_) => MutationAction::Replace,
+            Change::Remove(_) => MutationAction::Remove,
         };
-        let prefix = if args.dry_run { "WOULD_" } else { "" };
-        if self.mkdir {
-            outln!(
-                "{prefix}MKDIR\t{:?}",
-                self.link.parent().context("link parent")?
-            );
-        }
-        outln!("{prefix}{action}\t{:?}\t{:?}", self.link, self.entry.target);
+        let parent = self
+            .mkdir
+            .then(|| self.link.parent().expect("validated parent").to_path_buf());
         if args.dry_run {
             r.preview_bytes(self.after.as_bytes())?;
         } else {
@@ -219,10 +215,13 @@ impl Plan {
                 r.save_bytes(self.after.as_bytes())?;
             }
         }
-        if args.command != Command::Remove {
-            output::warn_target(&self.link, &self.entry.target);
-        }
-        Ok(())
+        Ok(MutationResult {
+            action,
+            link: self.link,
+            target: self.entry.target,
+            parent,
+            recovered: false,
+        })
     }
 }
 
@@ -294,7 +293,9 @@ fn plan_remove(r: &Registry, args: &Args, entry: Entry) -> Result<Plan> {
         match inspect::snapshot(&link)? {
             Some(old) => {
                 if !paths::target_matches(&link, &old.target, &entry.target)? {
-                    bail!("MISMATCH: link left untouched; use --keep-link to unregister only");
+                    bail!(
+                        "target differs; link left untouched; use --keep-link to unregister only"
+                    );
                 }
                 Change::Remove(old)
             }
@@ -310,7 +311,12 @@ fn plan_remove(r: &Registry, args: &Args, entry: Entry) -> Result<Plan> {
     })
 }
 
-fn mutate_many(r: &mut Registry, args: &Args, recovered: Option<&Path>) -> Result<u8> {
+fn mutate_many(
+    r: &mut Registry,
+    args: &Args,
+    recovered: Option<&Path>,
+    report: &mut MutationOutput,
+) -> Result<()> {
     // A recovered removal may no longer be registered. Exclude it before lookup.
     let operands = args
         .operands
@@ -319,7 +325,7 @@ fn mutate_many(r: &mut Registry, args: &Args, recovered: Option<&Path>) -> Resul
         .cloned()
         .collect::<Vec<_>>();
     if !args.operands.is_empty() && operands.is_empty() {
-        return Ok(0);
+        return Ok(());
     }
     let entries = if args.command == Command::Adopt {
         vec![]
@@ -339,7 +345,6 @@ fn mutate_many(r: &mut Registry, args: &Args, recovered: Option<&Path>) -> Resul
     };
     paths_to_visit.retain(|p| Some(p.as_path()) != recovered);
     let mut seen = HashSet::new();
-    let mut failed = false;
     for link in paths_to_visit {
         if !seen.insert(paths::key(&link).unwrap_or_else(|_| link.to_string_lossy().into_owned())) {
             continue;
@@ -361,14 +366,14 @@ fn mutate_many(r: &mut Registry, args: &Args, recovered: Option<&Path>) -> Resul
             }
             _ => unreachable!("validated mutation command"),
         };
-        if let Err(error) = plan.and_then(|p| p.apply(r, args)) {
-            eprintln!("ERROR\t{link:?}\t{error:#}");
-            failed = true;
+        match plan.and_then(|p| p.apply(r, args)) {
+            Ok(result) => report.record(result),
+            Err(error) => report.failure(&link, &error),
         }
         if !args.dry_run && transaction::load(r)?.is_some() {
-            eprintln!("PENDING: stopped subsequent changes; repeat the operation for the failed link to recover");
+            eprintln!("! incomplete operation\n  remaining links were not processed; repeat the operation for the failed link to recover");
             break;
         }
     }
-    Ok(u8::from(failed))
+    Ok(())
 }

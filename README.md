@@ -81,7 +81,7 @@ The second operand is always the exact location of the link. slink never appends
 | A symlink with a different reference path | Report a conflict and suggest `-f` | Replace the symlink; add or update its registration |
 | A regular file, directory, or other filesystem object | Report a conflict and preserve it | Same |
 
-This works for both registered and unregistered symlinks. When the symlink and registration already match, the command reports `UNCHANGED`.
+This works for both registered and unregistered symlinks. When the symlink and registration already match, the command reports `unchanged`.
 
 ```sh
 slink -f ~/dotfiles/git/.gitconfig ~/.gitconfig
@@ -115,7 +115,7 @@ flowchart TD
     R["links.toml"]
     L["/Users/you/.gitconfig"]
     T["/Users/you/dotfiles/git/.gitconfig"]
-    F["/Users/you/store/gitconfig"]
+    F["/Users/you/store/.gitconfig"]
     R -. "link" .-> L
     R -. "target" .-> T
     L --> T
@@ -143,9 +143,9 @@ slink --config
 code "$(slink --config)"
 ```
 
-One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. There is no `version` field or other top-level setting. An empty file represents no registrations.
+One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. An empty file represents no registrations.
 
-`list` displays entries in file order, including invalid paths and duplicate registrations. For example, a hand-edited `target = "PhD"` remains visible in the list. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links; they reject that target because it is not absolute. Path errors identify the registry file, entry number, and invalid field without guessing what path you intended.
+`list` displays entries in file order, including invalid paths and duplicate registrations. For example, if you hand-edit `links.toml` and enter `target = "mytarget"`, the entry remains visible even though this target is invalid because it is not an absolute path. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links and reject such values. Path errors identify the registry file, entry number, and invalid field.
 
 All commands that read registrations, including `list`, require valid TOML and the entry structure above. A syntax error, missing field, non-string value, or unknown field prevents the file from being read; no partial list is printed.
 
@@ -185,23 +185,51 @@ slink check -- -link
 
 The first command uses the file `list` in the working directory as its target. The second checks the registered link named `-link`. Ordinary paths such as `./list-link` do not need `--` after a command.
 
-Parent creation, replacement, dry-run, keeping removed links, and recursive scanning are opt-in. Newly created links are always registered; missing targets are allowed and reported. No command options are stored in the registry. See [default decisions](docs/defaults.md).
+Parent creation, replacement, dry-run, keeping removed links, and recursive scanning are opt-in. Newly created links are always registered; missing targets are allowed and reported. See [default decisions](docs/defaults.md).
 
 ## Scan and output
 
 ```sh
 slink scan
-slink scan -R ~/github
-slink scan ~/Library/Services
+slink scan -R ~/projects
+slink scan ~/links
 slink list -o tsv
 slink check -o tsv
 ```
 
-Scan is shallow unless `-R` is specified. Recursive scans include ordinary directories such as `.venv` and `.workflow` bundles. Directory symlinks are displayed but never traversed. A scan root that is itself a symlink is rejected, including when written with a trailing slash. Duplicate or overlapping roots do not duplicate links.
+Scan is shallow unless `-R` is specified. Recursive scans include ordinary subdirectories. Directory symlinks are displayed but never traversed. A scan root that is itself a symlink is rejected, including when written with a trailing slash. Duplicate or overlapping roots do not duplicate links.
 
-Management is determined by the link's location. A registered link in `~/Library/Services` does not register links found inside its target directory under `~/github`. `check` can therefore report all registrations healthy while `scan` discovers other unmanaged links inside a workflow.
+Management is determined by each link's location. Links at different locations are separate registrations, even if they point to the same target. Registering a link to a directory does not register links inside that directory. `check` inspects registered links; `scan` discovers links within its search scope, including unmanaged ones.
 
 Human output groups scan results into managed and unmanaged links, with problems first. A healthy `check` prints only `OK N links`. Human link locations under the home directory may display as `~/…`; registry values stay absolute. Targets are quoted and control characters escaped. Colors are enabled only on a terminal, and disabled by `NO_COLOR` or `TERM=dumb`.
+
+### Changes and previews
+
+Creation, adoption, removal, fix, and recovery show a link's location, an action such as `created`, `registered`, `removed`, or `unchanged`, and the registered target on the next line. Parent directory creation appears as an additional detail. Completion is reported after the operation succeeds.
+
+`fix` displays changed links and links with target problems, and summarizes healthy unchanged links by count. For example, restoring one missing link while leaving 22 healthy links unchanged produces:
+
+```text
+✓ ~/links/example.txt — created
+  → "/Users/you/files/example.txt"
+
+1 changed, 22 unchanged
+```
+
+Running `slink fix -n` previews the same operation:
+
+```text
+○ ~/links/example.txt — would create
+  → "/Users/you/files/example.txt"
+
+1 change planned, 22 unchanged
+```
+
+`✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or failure. A target problem is shown even when the link is unchanged. Recoveries use labels such as `recovered creation` and `would recover creation`.
+
+Fix and operations processing multiple links end with counts of changed, unchanged, and failed entries; failed counts appear when nonzero. A changed entry can mean a filesystem change, a registration change, or both. Target issues are counted separately and do not make a completed mutation fail. Results and target warnings go to stdout; operation errors include the link and reason on stderr. Counts cover processed entries.
+
+### TSV
 
 TSV has a header and one row per link:
 
