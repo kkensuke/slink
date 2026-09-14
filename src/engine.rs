@@ -152,17 +152,20 @@ fn create_target(a: &Args, link: &Path) -> Result<String> {
     }
 }
 
-fn parents_plan(link: &Path, parents: bool, dry: bool) -> Result<()> {
+// Validate the parent and report the plan without writing. Actual creation is
+// deliberately deferred until the transaction is durable (or until fix is
+// about to create a missing, non-replacement link).
+fn parents_plan(link: &Path, parents: bool, dry_run: bool) -> Result<()> {
     let parent = link.parent().context("link parent")?;
     paths::directory_location(parent)?;
     if !parent.is_dir() {
         if !parents {
             bail!("parent directory is missing; use --parents: {parent:?}");
         }
-        println!("{}MKDIR\t{parent:?}", if dry { "WOULD_" } else { "" });
-        if !dry {
-            fs::create_dir_all(parent)?;
-        }
+        println!(
+            "{}MKDIR\t{parent:?}",
+            if dry_run { "WOULD_" } else { "" }
+        );
     }
     Ok(())
 }
@@ -194,7 +197,7 @@ fn create(r: &mut Registry, a: &Args) -> Result<()> {
     if inspect::snapshot(&link)?.is_some() {
         bail!("existing symlink is unregistered; use adopt: {link:?}");
     }
-    parents_plan(&link, a.parents, true)?;
+    parents_plan(&link, a.parents, a.dry_run)?;
     let entry = Entry {
         link: paths::text(&link)?.to_owned(),
         target,
@@ -326,7 +329,7 @@ fn fix(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
             );
         }
     }
-    parents_plan(p, a.parents, true)?;
+    parents_plan(p, a.parents, a.dry_run)?;
     println!(
         "{}{}\t{p:?}\t{:?}",
         if a.dry_run { "WOULD_" } else { "" },
@@ -348,7 +351,9 @@ fn fix(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
             )?;
             transaction::finish(r, &pending)?;
         } else {
-            parents_plan(p, a.parents, false)?;
+            if a.parents {
+                fs::create_dir_all(p.parent().context("link parent")?)?;
+            }
             std::os::unix::fs::symlink(&e.target, p)?;
         }
     }
