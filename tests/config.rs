@@ -29,7 +29,7 @@ fn config_prints_only_the_default_registry_path() {
 
 #[test]
 fn config_falls_back_to_home_for_unset_empty_or_relative_xdg() {
-    for xdg in [None, Some(""), Some("relative") ] {
+    for xdg in [None, Some(""), Some("relative")] {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         fs::create_dir(&home).unwrap();
@@ -49,7 +49,8 @@ fn config_falls_back_to_home_for_unset_empty_or_relative_xdg() {
             String::from_utf8(output.stdout).unwrap(),
             format!(
                 "{}\n",
-                home.join(PathBuf::from(".config/slink/links.toml")).display()
+                home.join(PathBuf::from(".config/slink/links.toml"))
+                    .display()
             ),
             "xdg={xdg:?}"
         );
