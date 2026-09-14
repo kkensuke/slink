@@ -116,12 +116,14 @@ target文字列は完全一致で比較します。異なる文字列が最終�
 
 次の例では、カレントディレクトリを `/Users/you/demo`、管理ファイルを `/Users/you/demo/config/links.toml` とします。
 
-| 入力 | 基準 | 例 |
+| 入力 | 基準・規則 | 例 |
 | --- | --- | --- |
 | CLIの `--file config/links.toml` | カレントディレクトリ | `/Users/you/demo/config/links.toml` |
 | CLIのlink引数 `run/nvim` | カレントディレクトリ | `/Users/you/demo/run/nvim` |
 | 管理ファイルの `link = "../run/nvim"` | 管理ファイルのあるディレクトリ | `/Users/you/demo/run/nvim` |
 | 相対target文字列 `../dotfiles/nvim` | リンクの親ディレクトリ | linkが `/Users/you/demo/run/nvim` なら `/Users/you/demo/dotfiles/nvim` |
+| CLIのtarget引数 `dotfiles/nvim`（`--relative` なし） | 文字列をそのまま格納。保存後はリンクの親ディレクトリから辿る | `dotfiles/nvim` を格納し、`/Users/you/demo/run/dotfiles/nvim` を参照 |
+| CLIのtarget引数 `dotfiles/nvim`（`--relative` あり） | カレントディレクトリから解釈し、リンクの親ディレクトリからの相対パスへ変換 | `../dotfiles/nvim` を格納し、`/Users/you/demo/dotfiles/nvim` を参照 |
 
 相対targetがリンクの親ディレクトリを基準にするのは、OSがシンボリックリンクをその規則で辿るためです。リンクを辿るときに、管理ファイルの場所は使われません。
 
