@@ -10,7 +10,11 @@ fn scan_without_directory_uses_cwd_and_recursive_flag_only_changes_depth() {
     symlink("missing", f.path("work/top")).unwrap();
     symlink("missing", f.path("work/nested/deep")).unwrap();
 
-    let shallow = f.command(&["scan"]).current_dir(f.path("work")).output().unwrap();
+    let shallow = f
+        .command(&["scan"])
+        .current_dir(f.path("work"))
+        .output()
+        .unwrap();
     assert!(shallow.status.success());
     let shallow = String::from_utf8(shallow.stdout).unwrap();
     assert!(shallow.contains("top"));
