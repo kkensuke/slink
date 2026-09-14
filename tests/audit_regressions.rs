@@ -1,3 +1,4 @@
+use fs2::FileExt;
 use std::os::unix::fs::symlink;
 use std::{fs, process::Command};
 
@@ -132,4 +133,26 @@ fn paths_with_spaces_and_quotes_round_trip_through_registry() {
     assert_eq!(f.command(&[target, link]).status().unwrap().code(), Some(0));
     assert_eq!(fs::read_to_string(f.root.join(link)).unwrap(), "ok");
     assert_eq!(f.command(&["check", link]).status().unwrap().code(), Some(0));
+}
+
+#[test]
+fn concurrent_registry_lock_is_reported_without_mutation() {
+    let f = Fixture::new();
+    let lock_path = f.root.join("links.toml.slink-lock");
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .unwrap();
+    lock.lock_exclusive().unwrap();
+
+    let output = f.command(&["future", "link"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("registry is busy"));
+    assert!(!f.root.join("links.toml").exists());
+    assert!(!f.root.join("link").exists());
 }
