@@ -23,8 +23,11 @@ fn recursive_scan_tsv_uses_stable_link_path_order() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(links, vec![
-        f.path("tree/a/link").to_str().unwrap().to_owned(),
-        f.path("tree/b/link").to_str().unwrap().to_owned(),
-    ]);
+    assert_eq!(
+        links,
+        vec![
+            f.path("tree/a/link").to_str().unwrap().to_owned(),
+            f.path("tree/b/link").to_str().unwrap().to_owned(),
+        ]
+    );
 }
