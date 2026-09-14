@@ -54,7 +54,7 @@ impl Fixture {
         self.registry()
             .parse::<toml_edit::DocumentMut>()
             .unwrap()
-            .get("links")
+            .get("link")
             .and_then(|i| i.as_array_of_tables())
             .map_or(0, |a| a.len())
     }
@@ -268,7 +268,7 @@ fn multiple_removals_do_not_delete_targets() {
 fn comments_quotes_order_and_crlf_survive_registration() {
     for newline in ["\n", "\r\n"] {
         let f = Fixture::new();
-        let original="# intro\nversion = 1\n\n# first link\n[[links]]\nlink = 'one' # location\ntarget   = 'source'\n".replace('\n',newline);
+        let original = "# intro\nversion = 1\n\n# first link\n[[link]]\nlink = 'one' # location\ntarget   = 'source'\n".replace('\n', newline);
         f.write("links.toml", &original);
         symlink("future", f.path("two")).unwrap();
         f.ok(&["adopt", "two"]);
@@ -287,7 +287,7 @@ fn registry_symlink_is_preserved_with_logical_relative_base() {
     fs::create_dir(f.path("store")).unwrap();
     f.write(
         "store/real.toml",
-        "version = 1\n[[links]]\nlink = 'one'\ntarget = 'source'\n",
+        "version = 1\n[[link]]\nlink = 'one'\ntarget = 'source'\n",
     );
     f.write("source", "data");
     symlink("source", f.path("one")).unwrap();
@@ -304,7 +304,7 @@ fn list_does_not_inspect_managed_paths() {
     let f = Fixture::new();
     f.write(
         "links.toml",
-        "version = 1\n[[links]]\nlink = 'missing/../link'\ntarget = 'source'\n",
+        "version = 1\n[[link]]\nlink = 'missing/../link'\ntarget = 'source'\n",
     );
     f.ok(&["list"]);
     assert!(!f.path("missing").exists());
@@ -337,8 +337,9 @@ fn invalid_registry_does_not_touch_files() {
     for text in [
         "version = 2\n",
         "version = 1\nunknown = true\n",
-        "version = 1\n[[links]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",
-        "version = 1\n[[links]]\nlink = 'x'\ntarget = 'y'\n[[links]]\nlink = 'x'\ntarget = 'z'\n",
+        "version = 1\n[[links]]\nlink = 'x'\ntarget = 'y'\n",
+        "version = 1\n[[link]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",
+        "version = 1\n[[link]]\nlink = 'x'\ntarget = 'y'\n[[link]]\nlink = 'x'\ntarget = 'z'\n",
     ] {
         f.write("links.toml", text);
         assert_eq!(f.run(&["fix", "--replace"]).status.code(), Some(2));
