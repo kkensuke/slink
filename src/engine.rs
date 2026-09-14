@@ -1,15 +1,11 @@
 use crate::{
-    cli::{Args, CheckFormat, Command, HELP},
-    inspect, paths,
+    cli::{Args, Command, OutputFormat, HELP},
+    inspect, output, paths,
     registry::{Entry, Registry},
     transaction::{self, Operation},
 };
 use anyhow::{bail, Context, Result};
-use std::{
-    collections::HashSet,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, fs, path::Path};
 
 pub fn run(args: Args) -> Result<u8> {
     if args.command == Command::Help {
@@ -24,18 +20,14 @@ pub fn run(args: Args) -> Result<u8> {
         || (args.command == Command::Scan && args.file.is_none());
     let mut r = Registry::open(args.file.as_deref(), allow_missing)?;
     if args.command == Command::List {
-        println!("LINK\tTARGET");
-        for e in &r.entries {
-            println!("{:?}\t{:?}", e.link, e.target);
-        }
-        return Ok(0);
+        return output::list(&r, args.output_format);
     }
     if args.command == Command::Scan {
-        return scan(&r, &args.operands);
+        return output::scan(&r, &args.operands, args.output_format);
     }
     let pending = transaction::load(&r)?;
     if args.command == Command::Check {
-        if args.check_format == CheckFormat::Tsv {
+        if args.output_format == OutputFormat::Tsv {
             let mut failed = pending.is_some();
             if let Some(p) = &pending {
                 eprintln!(
@@ -439,63 +431,4 @@ fn remove(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
         transaction::finish(r, &pending)?;
     }
     Ok(())
-}
-
-fn scan(r: &Registry, roots: &[String]) -> Result<u8> {
-    let mut failed = false;
-    let mut visited = HashSet::new();
-    let mut stack: Vec<PathBuf> = roots
-        .iter()
-        .map(|s| paths::absolute(Path::new(s)))
-        .collect::<Result<_>>()?;
-    println!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET");
-    while let Some(p) = stack.pop() {
-        let result = (|| -> Result<()> {
-            if !fs::symlink_metadata(&p)?.is_dir() {
-                bail!("scan roots must be directories, not symlinks: {p:?}");
-            }
-            if !visited.insert(fs::canonicalize(&p)?) {
-                return Ok(());
-            }
-            let mut children = fs::read_dir(&p)?.collect::<std::io::Result<Vec<_>>>()?;
-            children.sort_by_key(|x| x.file_name());
-            for child in children {
-                let q = child.path();
-                match child.file_type() {
-                    Ok(t) if t.is_symlink() => match inspect::snapshot(&q) {
-                        Ok(Some(s)) => println!(
-                            "{}\t{}\t{q:?}\t{:?}",
-                            if r.find(&q)?.is_some() {
-                                "MANAGED"
-                            } else {
-                                "UNMANAGED"
-                            },
-                            inspect::health(&paths::target_path(&q, &s.target)),
-                            s.target
-                        ),
-                        Ok(None) => {
-                            failed = true;
-                            eprintln!("CHANGED\t{q:?}");
-                        }
-                        Err(e) => {
-                            failed = true;
-                            eprintln!("ERROR\t{q:?}\t{e:#}");
-                        }
-                    },
-                    Ok(t) if t.is_dir() => stack.push(q),
-                    Ok(_) => {}
-                    Err(e) => {
-                        failed = true;
-                        eprintln!("ERROR\t{q:?}\t{e}");
-                    }
-                }
-            }
-            Ok(())
-        })();
-        if let Err(e) = result {
-            failed = true;
-            eprintln!("ERROR\t{p:?}\t{e:#}");
-        }
-    }
-    Ok(u8::from(failed))
 }
