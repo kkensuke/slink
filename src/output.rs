@@ -47,7 +47,7 @@ pub fn check(
         }
         println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET");
         for (link, target, diagnosis) in checked {
-            let actual = diagnosis.actual(target);
+            let actual = diagnosis.actual();
             println!(
                 "{}\t{}\t{}\t{}\t{}\t{}",
                 diagnosis.link.code(),
@@ -149,10 +149,7 @@ impl ScanEntry {
 
     fn actual_health(&self) -> &TargetHealth {
         match &self.health {
-            ScanHealth::Managed {
-                expected,
-                diagnosis,
-            } => diagnosis.actual(expected).expect("scanned symlink").1,
+            ScanHealth::Managed { diagnosis, .. } => diagnosis.actual().expect("scanned symlink").1,
             ScanHealth::Unmanaged(health) => health,
         }
     }
@@ -170,8 +167,8 @@ struct ScanError {
     reason: String,
 }
 
-pub fn scan(r: &Registry, roots: &[String], format: OutputFormat) -> Result<u8> {
-    let (entries, errors) = collect_scan(r, roots)?;
+pub fn scan(r: &Registry, roots: &[String], recursive: bool, format: OutputFormat) -> Result<u8> {
+    let (entries, errors) = collect_scan(r, roots, recursive)?;
     let failed = !errors.is_empty() || entries.iter().any(ScanEntry::inspection_failed);
     if format == OutputFormat::Tsv {
         print_scan_tsv(&entries, &errors);
@@ -181,7 +178,11 @@ pub fn scan(r: &Registry, roots: &[String], format: OutputFormat) -> Result<u8> 
     Ok(u8::from(failed))
 }
 
-fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<ScanError>)> {
+fn collect_scan(
+    r: &Registry,
+    roots: &[String],
+    recursive: bool,
+) -> Result<(Vec<ScanEntry>, Vec<ScanError>)> {
     let mut entries = Vec::new();
     let mut errors = Vec::new();
     let mut visited = HashSet::new();
@@ -196,7 +197,7 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
             } else {
                 trimmed
             };
-            paths::absolute(Path::new(root))
+            paths::from_cli(root)
         })
         .collect::<Result<_>>()?;
 
@@ -267,7 +268,9 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
                 }
             };
             if file_type.is_dir() {
-                stack.push(path);
+                if recursive {
+                    stack.push(path);
+                }
                 continue;
             }
             if !file_type.is_symlink() {
@@ -552,23 +555,34 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
     let link = display_link(p);
     let mut lines = Vec::new();
     match &diagnosis.link {
-        LinkState::Match => match &diagnosis.expected_health {
-            TargetHealth::Reachable => {}
-            TargetHealth::Missing => {
-                lines.push(format!("! {link} — target is missing"));
-                lines.push(format!("  target: {}", quoted(expected)));
+        LinkState::Match(actual) => {
+            let (expected, health) = if let Some(health) = diagnosis
+                .actual_health
+                .as_ref()
+                .filter(|h| !h.is_reachable())
+            {
+                (actual.as_str(), health)
+            } else {
+                (expected, &diagnosis.expected_health)
+            };
+            match health {
+                TargetHealth::Reachable => {}
+                TargetHealth::Missing => {
+                    lines.push(format!("! {link} — target is missing"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                }
+                TargetHealth::ResolutionError(reason) => {
+                    lines.push(format!("! {link} — target cannot be resolved"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
+                }
+                TargetHealth::Unknown(reason) => {
+                    lines.push(format!("! {link} — cannot inspect target"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
+                }
             }
-            TargetHealth::ResolutionError(reason) => {
-                lines.push(format!("! {link} — target cannot be resolved"));
-                lines.push(format!("  target: {}", quoted(expected)));
-                lines.push(format!("  reason: {}", display_text(reason)));
-            }
-            TargetHealth::Unknown(reason) => {
-                lines.push(format!("! {link} — cannot inspect target"));
-                lines.push(format!("  target: {}", quoted(expected)));
-                lines.push(format!("  reason: {}", display_text(reason)));
-            }
-        },
+        }
         LinkState::Missing => {
             lines.push(format!("! {link} — link is missing"));
             push_target(&mut lines, "target", expected, &diagnosis.expected_health);
@@ -612,6 +626,8 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
 }
 
 pub fn display_link(p: &Path) -> String {
+    let cleaned = p.components().collect::<PathBuf>();
+    let p = cleaned.as_path();
     let compact = paths::home().ok().and_then(|home| {
         if p == home {
             Some("~".to_owned())

@@ -1,4 +1,5 @@
 use crate::{
+    cli::{Args, Command},
     inspect::{snapshot, Snapshot},
     paths,
     registry::{atomic_write, Entry, Registry},
@@ -19,13 +20,36 @@ pub enum Operation {
     Replace,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Request {
+    command: String,
+    pub parents: bool,
+    force: bool,
+}
+
+impl From<&Args> for Request {
+    fn from(args: &Args) -> Self {
+        Self {
+            command: match args.command {
+                Command::Create => "create",
+                Command::Fix => "fix",
+                Command::Remove => "remove",
+                _ => "adopt",
+            }
+            .into(),
+            parents: args.parents,
+            force: args.force,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Pending {
     version: u8,
     pub op: Operation,
     pub entry: Entry,
     pub link: PathBuf,
-    pub parents: bool,
+    pub request: Request,
     before: Option<String>,
     after: String,
     old: Option<Snapshot>,
@@ -47,7 +71,7 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
     let p: Pending = serde_json::from_slice(&data)
         .context("invalid pending operation; preserve this file for recovery")?;
     paths::validate_target(&p.entry.target)?;
-    if p.version != 1 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
+    if p.version != 2 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
         bail!("invalid pending operation");
     }
     match p.op {
@@ -77,7 +101,7 @@ pub fn begin(
     link: PathBuf,
     old: Option<Snapshot>,
     after: String,
-    parents: bool,
+    request: Request,
 ) -> Result<Pending> {
     r.verify()?;
     let backup = if old.is_some() {
@@ -90,11 +114,11 @@ pub fn begin(
         None
     };
     let pending = Pending {
-        version: 1,
+        version: 2,
         op,
         entry,
         link,
-        parents,
+        request,
         before: r
             .original
             .as_ref()
@@ -189,7 +213,7 @@ fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
             None => {
                 let parent = p.link.parent().context("link parent")?;
                 paths::directory_location(parent)?;
-                if !p.parents && !parent.is_dir() {
+                if !p.request.parents && !parent.is_dir() {
                     bail!("link parent is missing; restore it before resuming");
                 }
             }
@@ -222,7 +246,7 @@ pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
         }
     }
     if p.op != Operation::Remove {
-        if p.parents {
+        if p.request.parents {
             fs::create_dir_all(p.link.parent().context("link parent")?)?;
         }
         match snapshot(&p.link)? {
