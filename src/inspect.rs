@@ -230,6 +230,31 @@ pub fn display_text(text: &str) -> String {
     out
 }
 
+pub fn report_tsv(p: &Path, expected: &str) -> bool {
+    let actual = snapshot(p);
+    let state = match &actual {
+        Ok(Some(s)) if s.target == expected => "MATCH",
+        Ok(Some(_)) => "MISMATCH",
+        Ok(None) => "MISSING",
+        Err(_) => match fs::symlink_metadata(p) {
+            Ok(m) if !m.file_type().is_symlink() => "CONFLICT",
+            _ => "UNKNOWN",
+        },
+    };
+    let target_state = health(&paths::target_path(p, expected));
+    println!("{state}\t{target_state}\t{p:?}\t{expected:?}");
+    match actual {
+        Ok(Some(s)) if s.target != expected => println!(
+            "  actual: {:?}\t{}",
+            s.target,
+            health(&paths::target_path(p, &s.target))
+        ),
+        Err(e) => eprintln!("  {e:#}"),
+        _ => {}
+    }
+    state == "MATCH" && target_state == "REACHABLE"
+}
+
 pub fn warn_target(p: &Path, target: &str) {
     let h = health(&paths::target_path(p, target));
     if h != "REACHABLE" {
