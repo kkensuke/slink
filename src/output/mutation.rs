@@ -1,6 +1,9 @@
 use super::{display_link, display_text, ok_marker, paint, plural, problem_marker, quoted};
 use crate::{cli::Command, inspect, paths};
-use std::{collections::HashSet, path::{Path, PathBuf}};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MutationAction {
