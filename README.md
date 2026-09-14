@@ -197,7 +197,7 @@ slink list -o tsv
 slink check -o tsv
 ```
 
-Scan is shallow unless `-R` is specified. Recursive scans include ordinary subdirectories. Directory symlinks are displayed but never traversed. A scan root that is itself a symlink is rejected, including when written with a trailing slash. Duplicate or overlapping roots do not duplicate links.
+Scan is shallow unless `-R` is specified. With no directory operand, the working directory is used: `slink scan` is equivalent to `slink scan .`, and `slink scan -R` is equivalent to `slink scan -R .`. Recursive scans include ordinary subdirectories. Directory symlinks are displayed but never traversed. A scan root that is itself a symlink is rejected, including when written with a trailing slash. Duplicate or overlapping roots do not duplicate links.
 
 Management is determined by each link's location. Links at different locations are separate registrations, even if they point to the same target. Registering a link to a directory does not register links inside that directory. `check` inspects registered links; `scan` discovers links within its search scope, including unmanaged ones.
 
@@ -236,10 +236,10 @@ TSV has a header and one row per link:
 | Command | Columns in order |
 | --- | --- |
 | list | `LINK`, `TARGET` |
-| check | `LINK_STATE`, `TARGET_STATE`, `LINK`, `TARGET`, `ACTUAL_TARGET_STATE`, `ACTUAL_TARGET` |
-| scan | `MANAGEMENT`, `TARGET_STATE`, `LINK`, `TARGET`, `LINK_STATE`, `EXPECTED_TARGET_STATE`, `EXPECTED_TARGET` |
+| check | `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
+| scan | `MANAGEMENT`, `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
 
-Path/target cells are JSON strings, optional absent cells are empty, and diagnostic reasons go to stderr. For list, both columns contain the stored strings without path conversion. For check, `TARGET` is the registered absolute target and `ACTUAL_TARGET` is the text read from the link. For scan, `TARGET` is the actual text and `EXPECTED_TARGET` is the registered absolute target. Thus a matching adopted link can have different text in those columns.
+Path/target cells are JSON strings, optional absent cells are empty, and diagnostic reasons go to stderr. `list` contains the stored strings without path conversion. In `check` and managed `scan` rows, `TARGET` is the registered absolute target and `TARGET_STATE` describes its availability; `ACTUAL_TARGET` is the text read from the symlink and `ACTUAL_TARGET_STATE` describes the referenced target's availability. A matching adopted link can therefore have different text in `TARGET` and `ACTUAL_TARGET`. An unmanaged `scan` row has no registered target, so `LINK_STATE`, `TARGET`, and `TARGET_STATE` are empty while the `ACTUAL_TARGET` columns describe the discovered symlink. Emitted filesystem path cells remove redundant `.` components, so paths such as `/Users/you/./links/item` are displayed as `/Users/you/links/item`.
 
 ## Safety and recovery
 
