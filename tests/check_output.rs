@@ -60,8 +60,8 @@ fn check_explains_a_target_mismatch_with_expected_and_actual_text() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.starts_with("1 problem found (1 link checked)\n\n"));
     assert!(stdout.contains("— target differs\n"));
-    assert!(stdout.contains("  expected: expected\n"));
-    assert!(stdout.contains("  actual:   actual\n"));
+    assert!(stdout.contains("  expected: \"expected\"\n"));
+    assert!(stdout.contains("  actual:   \"actual\"\n"));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn check_reports_a_missing_target_without_repeating_internal_states() {
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("— target is missing\n  target: missing\n"));
+    assert!(stdout.contains("— target is missing\n  target: \"missing\"\n"));
     assert!(!stdout.contains("MATCH"));
     assert!(!stdout.contains("MISSING\t"));
 }
@@ -119,7 +119,7 @@ fn check_reports_resolution_errors_with_the_os_reason() {
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("— target cannot be resolved\n"));
-    assert!(stdout.contains("  target: link\n"));
+    assert!(stdout.contains("  target: \"link\"\n"));
     assert!(stdout.contains("  reason: "));
     assert!(!stdout.contains("RESOLUTION_ERROR"));
 }
@@ -156,7 +156,7 @@ fn check_reports_pending_recovery_separately() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("! incomplete operation\n"));
     assert!(stdout.contains("  operation: create\n"));
-    assert!(stdout.contains("  target: future\n"));
+    assert!(stdout.contains("  target: \"future\"\n"));
     assert!(
         stdout.contains("repeat the original command with the same target and options to recover")
     );
@@ -176,4 +176,69 @@ fn check_selected_link_keeps_the_checked_count_scoped_to_the_selection() {
         fs::read_link(f.root.join("one")).unwrap(),
         Path::new("target")
     );
+}
+
+#[test]
+fn different_target_strings_remain_distinguishable_in_human_output() {
+    let f = Fixture::new();
+    let expected = "a\\nb";
+    let actual = "a\nb";
+    fs::write(f.root.join(expected), "expected").unwrap();
+    fs::write(f.root.join(actual), "actual").unwrap();
+    symlink(actual, f.root.join("link")).unwrap();
+    f.registry("version = 1\n[[link]]\nlink = 'link'\ntarget = 'a\\nb'\n");
+
+    let output = f.run(&["check"]);
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let expected_display = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("  expected: "))
+        .unwrap();
+    let actual_display = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("  actual:   "))
+        .unwrap();
+    assert_ne!(expected_display, actual_display);
+    assert_eq!(
+        serde_json::from_str::<String>(expected_display).unwrap(),
+        expected
+    );
+    assert_eq!(
+        serde_json::from_str::<String>(actual_display).unwrap(),
+        actual
+    );
+}
+
+#[test]
+fn target_output_preserves_spaces_and_escapes_all_terminal_controls() {
+    let f = Fixture::new();
+    let target = " leading\tline\n\\\"\u{7f}\u{9b} trailing ";
+    symlink(target, f.root.join("link")).unwrap();
+    assert!(f.run(&["adopt", "link"]).status.success());
+    for args in [
+        vec!["list"],
+        vec!["list", "--format", "tsv"],
+        vec!["scan", "."],
+    ] {
+        let output = f.run(&args);
+        assert!(output.status.success(), "args={args:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t'));
+        let value = if args.contains(&"tsv") {
+            stdout.lines().nth(1).unwrap().split('\t').nth(1).unwrap()
+        } else {
+            stdout
+                .lines()
+                .find_map(|line| {
+                    let line = line.trim_start();
+                    line.strip_prefix("→ ")
+                        .or_else(|| line.strip_prefix("target: "))
+                })
+                .unwrap()
+        };
+        assert_eq!(serde_json::from_str::<String>(value).unwrap(), target);
+    }
 }

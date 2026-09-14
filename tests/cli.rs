@@ -356,7 +356,7 @@ fn reserved_names_and_control_characters_are_literal_after_separator() {
     assert_eq!(f.target("a\nlink"), Path::new("list"));
     let out = String::from_utf8(f.ok(&["list"]).stdout).unwrap();
     assert!(out.contains("a\\nlink"));
-    assert!(out.contains("  → list"));
+    assert!(out.contains("  → \"list\""));
 }
 
 #[test]
