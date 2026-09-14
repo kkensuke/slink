@@ -116,12 +116,14 @@ Absolute paths begin with `/` and do not depend on a starting directory. Relativ
 
 This example uses `/Users/you/demo` as the working directory and `/Users/you/demo/config/links.toml` as the registry file.
 
-| Input | Starting point | Example result |
+| Input | Starting point or rule | Example result |
 | --- | --- | --- |
 | CLI `--file config/links.toml` | Working directory | `/Users/you/demo/config/links.toml` |
 | CLI link argument `run/nvim` | Working directory | `/Users/you/demo/run/nvim` |
 | Registry `link = "../run/nvim"` | Registry file directory | `/Users/you/demo/run/nvim` |
 | Relative target text `../dotfiles/nvim` | Link parent directory | If the link is `/Users/you/demo/run/nvim`, it refers to `/Users/you/demo/dotfiles/nvim` |
+| CLI target `dotfiles/nvim` without `--relative` | Store the text unchanged; once stored, follow it from the link parent directory | Stores `dotfiles/nvim`, referring to `/Users/you/demo/run/dotfiles/nvim` |
+| CLI target `dotfiles/nvim` with `--relative` | Interpret it from the working directory, then convert it to a path relative to the link parent directory | Stores `../dotfiles/nvim`, referring to `/Users/you/demo/dotfiles/nvim` |
 
 A relative target starts from the link parent directory because that is how the operating system follows symbolic links. The registry file location is not involved when the link itself is followed.
 
