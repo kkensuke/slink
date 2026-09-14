@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A macOS CLI for managing symbolic links. Create links, record their intended targets in a hand-editable TOML file, and inspect, restore, or remove them later.
+A macOS CLI for managing symbolic links. It creates links, records them in a hand-editable TOML file, and lets you inspect, restore, or remove them later.
 
 ## Install
 
@@ -16,256 +16,264 @@ cargo install --path . --locked
 
 Successful macOS CI jobs also provide a release executable as an Actions artifact. The supported user platform is macOS; Linux CI exercises the portable logic.
 
-## Path model
+## Quick start
 
-A symbolic link stores a path as text. In slink, `link` specifies **where the symbolic link is placed**, and `target` specifies **the path text stored inside that link**. The path in `target` may name a file, a directory, or another symbolic link.
+`slink <target> <link>` creates a symbolic link and registers it in the registry file at the same time. Absolute paths are the easiest way to understand the basic behavior.
 
-The **working directory** is the directory in which you run a command. `pwd -P` displays its physical path. The **registry file** is the TOML file containing slink's registrations; its location is selected with `--file` or the default described below. The **registry file directory** is the directory containing that selected file. The **link parent directory** is the directory containing the symbolic link.
+For example, to use `/Users/you/dotfiles/nvim` at `/Users/you/.config/nvim`, run:
 
-This example uses `/Users/you/demo` as the working directory and `/Users/you/demo/config/links.toml` as the registry file. The parent directories shown are ordinary directories. `dotfiles/current` is an existing symbolic link containing the text `nvim`, which leads to the directory `dotfiles/nvim`.
+```sh
+slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
+```
 
-The registry file contains:
+This creates the symbolic link `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`. `--parents` creates the link parent directory `/Users/you/.config` if it is missing. If an ordinary file or directory already exists at `/Users/you/.config/nvim`, slink does not overwrite it.
+
+```mermaid
+flowchart LR
+    L["/Users/you/.config/nvim\nmanaged link"] == "target" ==> T["/Users/you/dotfiles/nvim\nreferenced path"]
+    R["links.toml\nregistry file"] -. "records link / target" .-> L
+```
+
+The registry file contains roughly:
 
 ```toml
 version = 1
 
 [[links]]
-link = "../run/nvim"
-target = "../dotfiles/current"
+link = "/Users/you/.config/nvim"
+target = "/Users/you/dotfiles/nvim"
 ```
 
-The diagram shows the link described by that entry. Thin solid lines show directory contents; the dotted line associates the entry with its link; thick arrows show symbolic-link references.
-
-```mermaid
-flowchart TD
-    W["Working directory: /Users/you/demo"] --> R["config: registry file directory"]
-    W --> P["run: link parent directory"]
-    W --> D["dotfiles"]
-    R --> F["links.toml: registry file"]
-    P --> L["nvim: managed link"]
-    D --> E["current: existing symbolic link"]
-    D --> T["nvim: referenced directory"]
-    F -. "link = ../run/nvim" .-> L
-    L == "target = ../dotfiles/current" ==> E
-    E == "nvim" ==> T
-```
-
-| Term | Concrete value in the diagram |
-| --- | --- |
-| Working directory | `/Users/you/demo` |
-| Registry file | `/Users/you/demo/config/links.toml` |
-| Registry file directory | `/Users/you/demo/config` |
-| Link path (`link`) | `/Users/you/demo/run/nvim`, obtained from `../run/nvim` in the registry file |
-| Link parent directory | `/Users/you/demo/run` |
-| Stored target text (`target`) | `../dotfiles/current` |
-| Existing symbolic link named by that target | `/Users/you/demo/dotfiles/current` |
-| Directory reached after following both symbolic links | `/Users/you/demo/dotfiles/nvim` |
-
-`readlink /Users/you/demo/run/nvim` returns `../dotfiles/current`. It does not return the final directory's path. slink manages `run/nvim`; referring to `dotfiles/current` does not automatically register or change that existing link. `link` and `target` describe roles in one reference, so a target can itself be another symbolic link.
-
-### Where relative paths start
-
-An absolute path starts with `/`, such as `/Users/you/demo/run/nvim`. A relative path, such as `run/nvim` or `../run/nvim`, needs a starting directory. In the example above:
-
-| Input | Starting directory / rule | Result |
-| --- | --- | --- |
-| CLI `--file config/links.toml` | Working directory | `/Users/you/demo/config/links.toml` |
-| CLI link argument `run/nvim` | Working directory | `/Users/you/demo/run/nvim` |
-| Registry `link = "../run/nvim"` | Registry file directory | `/Users/you/demo/run/nvim` |
-| Registry `target = "../dotfiles/current"` | Link parent directory when the link is followed | `/Users/you/demo/dotfiles/current` |
-| CLI target argument `dotfiles/current`, without `--relative` | Stored unchanged; followed from the link parent directory | `/Users/you/demo/run/dotfiles/current` |
-| CLI target argument `dotfiles/current`, with `--relative` | Locate the supplied path from the working directory, then store a path from the link parent directory | Stores `../dotfiles/current`, referring to `/Users/you/demo/dotfiles/current` |
-
-For example, the registry entry's target is interpreted from `/Users/you/demo/run`: go up one directory with `..`, then enter `dotfiles/current`. A relative target uses the link parent directory because that is how the operating system follows symbolic links. The registry file's location is not involved when the operating system follows the link.
-
-## Commands
-
-These are independent usage examples:
+You can then inspect the registrations and check or preview restoration:
 
 ```sh
-slink ~/dotfiles/zshrc ~/.zshrc
-slink --relative --parents ~/dotfiles/nvim ~/.config/nvim
 slink list
 slink check
 slink fix --dry-run
-slink fix --parents
-slink fix --replace ~/.zshrc
-slink remove ~/.zshrc
-slink remove --keep-link ~/.config/nvim
-slink adopt ~/.gitconfig ~/.tmux.conf
-slink scan ~/.config
+```
+
+If you want to store a relative target instead, use `--relative`; for example, the same relationship can be stored as `../dotfiles/nvim`. See [Path model](#path-model) and [`--relative`](#--relative) below for relative-path rules and for hand-written project registries with relative `link` values.
+
+## Commands
+
+```sh
+slink <target> <link>
+slink list
+slink check [link ...]
+slink fix [--parents] [--replace] [link ...]
+slink remove [--keep-link] <link ...>
+slink adopt <link ...>
+slink scan <directory ...>
 ```
 
 | Command | Responsibility |
 | --- | --- |
 | `slink <target> <link>` | Create a symbolic link and add its `link` / `target` entry to the registry file |
-| `slink list` | Display registered entries without inspecting their links |
+| `slink list` | Display registered entries without inspecting the actual links |
 | `slink check [link ...]` | Check registered links against their stored target text and report target availability |
-| `slink fix [link ...]` | Restore missing links; replace mismatched links only with `--replace` |
-| `slink remove <link ...>` | Delete matching registered links and their entries; preserve the files or directories they point to |
-| `slink adopt <link ...>` | Add entries for existing symbolic links without changing those links |
-| `slink scan <directory ...>` | Discover symbolic links without registering them |
+| `slink fix [link ...]` | Restore missing links; replacing a mismatched link requires `--replace` |
+| `slink remove <link ...>` | Delete matching registered links and their entries without deleting their targets |
+| `slink adopt <link ...>` | Register existing symbolic links without changing them |
+| `slink scan <directory ...>` | Discover symbolic links under the selected directories without registering them |
 
-`check` and `fix` default to all entries in the selected registry file. `remove` and `adopt` require explicit link paths. `scan` recurses into ordinary directories and never follows symbolic links to directories; its starting directories must also be ordinary directories.
+`check` and `fix` use all entries in the selected registry file when no link is specified. `remove` and `adopt` require explicit link paths. `scan` recurses into ordinary directories and does not follow symbolic links to directories.
 
 ### If the link path already exists
 
-In `slink --relative --parents ~/dotfiles/nvim ~/.config/nvim`, the exact link path is `~/.config/nvim`. `--parents` can create the parent `~/.config` if it is missing. It does not turn an existing `~/.config/nvim` directory into a link, and it does not create another link inside that directory.
+For example, the exact link path in this command is `/Users/you/.config/nvim`:
 
-| What is at `~/.config/nvim`? | Result of that creation command |
+```sh
+slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
+```
+
+| What is at the link path? | Result |
 | --- | --- |
 | Nothing, and the path is not registered | Create and register the link |
-| An ordinary directory, even an empty one | Error; leave the directory and its contents unchanged |
-| An ordinary file | Error; leave the file unchanged |
-| An unregistered symbolic link, including one pointing to a directory | Error; use `slink adopt ~/.config/nvim` to register the existing link |
-| A registered symbolic link whose registered and actual target text both match the command's target text | Report `UNCHANGED`; succeed without recreating it |
-| A registered path in any other state | Error; inspect it with `check` and use `fix` as appropriate |
+| An ordinary directory | Error; leave it and its contents unchanged |
+| An ordinary file | Error; leave it unchanged |
+| An unregistered symbolic link | Error; use `adopt` to register the existing link |
+| A registered symbolic link whose registered and actual target text match the command target | Report `UNCHANGED` and succeed |
+| A registered path in any other state | Error; inspect with `check` and use `fix` as appropriate |
 
-Target text is compared exactly. Two different strings that happen to reach the same file are still different targets for this comparison. Neither `--parents` nor `fix --replace` authorizes overwriting an ordinary directory.
+Target text is compared exactly. Two different strings that eventually reach the same file are still different targets for this comparison. Neither `--parents` nor `fix --replace` authorizes overwriting an ordinary file or directory.
 
-### What `--` means
+## Path model
 
-`--` ends option parsing: the remaining arguments are literal paths. Before the first path of a creation command, it also prevents that path from being interpreted as a subcommand name.
+A symbolic link stores its target path as text. slink uses these terms:
 
-| Example | Meaning |
-| --- | --- |
-| `slink -- list ./list-link` | Create `./list-link` with the literal target `list`; here `list` is a path, not the list subcommand |
-| `slink check ./list-link` | Check only the registered link at `./list-link` |
-| `slink check -- ./list-link` | The same check; `--` is optional because this path does not begin with `-` |
-| `slink check -- -link` | Check the registered link named `-link`; `--` prevents it from being treated as an option |
+- **link**: where the symbolic link is placed
+- **target**: the path text stored inside that symbolic link
+- **working directory**: the directory in which you run the command
+- **registry file**: the TOML file containing slink registrations
+- **registry file directory**: the directory containing the selected registry file
+- **link parent directory**: the directory containing the link
 
-Here `./list-link` means `list-link` in the working directory. `check` does not create or register it.
+Absolute paths begin with `/` and do not depend on a starting directory. Relative paths do, so the starting directory matters.
+
+### Where relative paths start
+
+This example uses `/Users/you/demo` as the working directory and `/Users/you/demo/config/links.toml` as the registry file.
+
+| Input | Starting point | Example result |
+| --- | --- | --- |
+| CLI `--file config/links.toml` | Working directory | `/Users/you/demo/config/links.toml` |
+| CLI link argument `run/nvim` | Working directory | `/Users/you/demo/run/nvim` |
+| Registry `link = "../run/nvim"` | Registry file directory | `/Users/you/demo/run/nvim` |
+| Relative target text `../dotfiles/nvim` | Link parent directory | If the link is `/Users/you/demo/run/nvim`, it refers to `/Users/you/demo/dotfiles/nvim` |
+
+A relative target starts from the link parent directory because that is how the operating system follows symbolic links. The registry file location is not involved when the link itself is followed.
+
+Without `--relative`, a CLI target operand is stored unchanged, like `ln -s`. For example, from `/Users/you/demo`:
+
+```sh
+slink --parents dotfiles/nvim run/nvim
+```
+
+stores the literal target text `dotfiles/nvim`. The operating system then follows that text from `/Users/you/demo/run`, so it refers to `/Users/you/demo/run/dotfiles/nvim`.
+
+If you instead mean `dotfiles/nvim` relative to the working directory `/Users/you/demo`, use `--relative`:
+
+```sh
+slink --relative --parents dotfiles/nvim run/nvim
+```
+
+This stores `../dotfiles/nvim`.
 
 ## Registry file
 
 ### Selecting a file
 
-The default is `$XDG_CONFIG_HOME/slink/links.toml` when `XDG_CONFIG_HOME` contains an absolute path, for example `/Users/you/config`. If the variable is unset, empty, or contains a relative path such as `config` or `./config`, slink uses `~/.config/slink/links.toml` instead. Here “relative” describes the environment variable's path value; it is unrelated to the `--relative` option.
+If `XDG_CONFIG_HOME` contains an absolute path such as `/Users/you/config`, the default registry is `$XDG_CONFIG_HOME/slink/links.toml`. If it is unset, empty, or contains a relative path such as `config` or `./config`, slink uses `~/.config/slink/links.toml`. Here “relative” describes the environment-variable value and is unrelated to the `--relative` option.
 
-`--file` selects exactly one other registry file. Files are never merged or auto-discovered. A relative `--file` path starts from the working directory:
+`--file` selects exactly one other registry file. Files are not merged or auto-discovered. A relative `--file` path starts from the working directory.
 
 ```sh
 cd /Users/you/demo
 slink --file config/links.toml check
 ```
 
-This selects `/Users/you/demo/config/links.toml`, so its registry file directory is `/Users/you/demo/config`.
+This selects `/Users/you/demo/config/links.toml`.
 
-### Why registry `link` paths can be relative
+### Relative `link` values in a registry file
 
-A hand-written project registry can use `link = "../run/nvim"`, as in the diagram. Basing this on the registry file directory makes it name the same link regardless of which working directory you run slink from. Moving the project tree together preserves the relationship between that registry file and the link path.
+CLI creation and `adopt` write absolute `link` paths. For a normal personal registry, this is usually the clearest form.
 
-Relative `link` paths are optional. For a personal registry, `~/...` or absolute paths may be easier to read. CLI creation and `adopt` write absolute `link` paths automatically. When other entries change, slink preserves hand-written path spelling, comments, ordering, quote styles, and CRLF line endings.
+A hand-written project registry can use a relative `link` instead:
+
+```toml
+version = 1
+
+[[links]]
+link = "../run/nvim"
+target = "../dotfiles/nvim"
+```
+
+If the registry file is `/Users/you/demo/config/links.toml`, this `link` means `/Users/you/demo/run/nvim`. Moving the project tree while preserving the relationship between the registry file and link path lets the same TOML continue to work.
+
+Relative `link` values are optional. Absolute paths or `~/...` may be easier to read in personal registries. When slink edits other entries, it preserves hand-written path spelling, comments, ordering, quote styles, and CRLF line endings.
 
 ### `~`, variables, and shell expansion
 
-In a command such as `ln -s ~/dotfiles/nvim ~/.config/nvim`, the shell expands `~` **before** it starts `ln`. The same expansion happens before `slink` starts:
+In these commands, the shell expands `~` or `$HOME` before `slink` starts:
 
 ```sh
 slink ~/dotfiles/nvim ~/.config/nvim
 slink "$HOME/dotfiles/nvim" "$HOME/.config/nvim"
 ```
 
-Both pass expanded home-directory paths to slink. These are alternative spellings, not steps to run in sequence. If you single-quote the target, the shell does not expand it:
+TOML is data and is not evaluated by a shell. slink provides one explicit convenience: a registry `link` beginning with `~/` is expanded to the user's home directory. Variables and shell expressions are not expanded.
 
-```sh
-ln -s '~/dotfiles/nvim' ./nvim-link
-slink '~/dotfiles/nvim' ./nvim-link
-```
-
-These are also alternatives. Both store the literal text `~/dotfiles/nvim`. Following such a link treats `~` as a directory name inside the link parent directory, not as your home directory.
-
-A TOML file is data and is not evaluated by a shell. slink provides one explicit convenience: a registry `link` value beginning with `~/` is expanded to the user's home directory. It does not expand variables or shell expressions in either field. Registry `target` values are kept as the exact text to store in the symbolic link, so `~` is not expanded there either. This lets `adopt` record an existing link's text and `fix` reproduce it without changing its meaning.
-
-For example, assuming the home directory is `/Users/you`, this entry places a link at `/Users/you/.config/nvim` and refers to `/Users/you/dotfiles/nvim`:
-
-```toml
-version = 1
-
-[[links]]
-link = "~/.config/nvim"
-target = "../dotfiles/nvim"
-```
-
-For the same location, `target = "/Users/you/dotfiles/nvim"` is also valid. `target = "~/dotfiles/nvim"` does not mean that absolute home-directory path.
+A registry `target` is the exact text stored in the symbolic link, so `target = "~/dotfiles/nvim"` does not expand `~` to the home directory. This allows `adopt` to record an existing link's target text and `fix` to reproduce it without changing its meaning.
 
 ### Editing entries by hand
 
-An entry is one complete `[[links]]` block with its `link` and `target` fields. “Registered” means that such an entry exists in the selected registry file; there is no separate list of formerly registered links.
+One registration is one complete `[[links]]` block containing `link` and `target`.
 
 | Hand edit | Effect |
 | --- | --- |
 | Add an entry | `fix` can create its missing link |
-| Change an entry's `target` | An existing mismatched link is changed only by `fix --replace` |
-| Delete an entire entry | The actual link remains, but this registry file's `list`, `check`, and `fix` no longer include it |
-| Change an entry's `link` | The old link remains and is no longer registered at that path; `fix` can create a link at the new path |
+| Change `target` | An existing link changes only when you run `fix --replace` |
+| Delete the whole entry | The actual link remains, but this registry's `list`, `check`, and `fix` no longer include it |
+| Change `link` | The old link remains and is no longer registered; `fix` can create the new link path |
 
-Deleting one entry means removing its `[[links]]` header and both fields, not deleting only `link` or `target`, which would leave an invalid entry. For example, after deleting the only entry for `~/.config/nvim`, that link still works as before, but `slink fix` will no longer restore it if it later disappears.
-
-To delete a link as well as its entry, run `slink remove <link>` **while the entry is still present**. Its target file or directory remains. `slink remove --keep-link <link>` deletes only the entry. If you already deleted the entry by hand, slink treats the remaining link as unregistered; `remove` will not delete it unless you register it again with `adopt`.
+To delete both the link and its registration, run `slink remove <link>` while the entry still exists. `slink remove --keep-link <link>` removes only the registration.
 
 ### If the registry file is itself a symbolic link
 
-slink updates the ordinary file it points to and keeps the registry file's symbolic link in place. Relative `link` values still start from the directory of the **selected registry file path**.
+slink updates the ordinary file referenced by the registry-file symbolic link and leaves the registry-file link in place. Relative `link` values are still based on the directory containing the **selected registry file path**, not the directory containing its final target.
 
-For example, if you select `/Users/you/demo/config/links.toml` and that file is a symbolic link to `/Users/you/store/shared.toml`, `link = "../run/nvim"` still names `/Users/you/demo/run/nvim`. The starting directory remains `/Users/you/demo/config`.
-
-This allows the stored TOML data to live elsewhere while the selected file path determines the project location. Selecting the same data through a file path in a different directory can change what relative `link` values name. Use absolute or `~/...` `link` values if their meaning should not depend on the selected registry file path.
+For example, if `/Users/you/demo/config/links.toml` points to `/Users/you/store/shared.toml`, `link = "../run/nvim"` still means `/Users/you/demo/run/nvim`.
 
 ## Options and defaults
 
 ### `--relative`
 
-The **target argument** is the path supplied in `slink <target> <link>`, after any shell expansion. Without `--relative`, slink stores this argument unchanged, like `ln -s`. If it is relative, the operating system follows it from the link parent directory.
+Without `--relative`, slink stores the target operand unchanged, like `ln -s`. An absolute target therefore behaves exactly as shown in the quick start.
 
-With `--relative`, slink first interprets the target argument from the working directory, then computes the target text relative to the link parent directory. As an alternative to writing the diagram's registry entry by hand, creating the link from the CLI looks like this:
+With `--relative`, slink first interprets the target operand from the working directory, then converts it into a path relative to the link parent directory and stores that text.
 
 ```sh
 cd /Users/you/demo
-slink --file config/links.toml --relative --parents dotfiles/current run/nvim
+slink --relative --parents dotfiles/nvim run/nvim
 ```
 
-The target argument is `dotfiles/current`; the stored target text is `../dotfiles/current`. The CLI writes an absolute `link` value, `/Users/you/demo/run/nvim`, which names the same link as the hand-written `../run/nvim` in the diagram.
+Here the target operand is `dotfiles/nvim`, the stored target is `../dotfiles/nvim`, and the CLI writes the absolute link path `/Users/you/demo/run/nvim` to the registry.
 
-If the supplied target path names or passes through another symbolic link, slink keeps that reference in the stored target text. In the diagram, it keeps `current` instead of substituting the final directory `nvim`. If that existing `current` link is later changed to point elsewhere, the managed link follows the new reference too.
+Relative targets are useful when the directory structure containing both the target side and link side is moved together. Moving only the link can break them. For that reason, `--relative` is opt-in rather than the default.
 
-Likewise, `..` cannot always be simplified as text. Suppose `alias` is an existing symbolic link to `tree/child`. From the same working directory:
+#### If the target path contains another symbolic link
+
+`--relative` does not silently replace symbolic links in the supplied target path with their final destinations.
+
+For example, suppose `/Users/you/demo/dotfiles/current` is an existing symbolic link to `nvim`. Then:
 
 ```sh
-slink --relative --parents alias/../data run/data
+cd /Users/you/demo
+slink --relative --parents dotfiles/current run/nvim
 ```
 
-The stored target is `../alias/../data`. Following it goes through `alias` into `tree/child`, then up to `tree/data`. Replacing `alias/../data` with `data` would reach a different path. slink keeps this traversal intact. When calculating a relative target, it also accounts for symbolic links in the link's parent directories so that the calculation starts from their actual location.
+stores `../dotfiles/current`, preserving the `current` reference. If `current` is later changed to point somewhere else, the managed `run/nvim` link follows that new reference too.
 
-`--relative` is optional because automatic conversion would change the interpretation of a relative target argument. Relative targets can keep working when the containing source/link tree is moved together, but moving only the link can break them.
+Similarly, meaningful `..` components in the supplied target path are preserved. If the path passes through another symbolic link, simplifying `..` textually can change which path is reached.
 
 ### `--parents`
 
-`--parents` creates missing link parent directories during creation or `fix`. It does not create the files or directories named by `target`. It is optional so a mistyped link parent directory is reported instead of silently created. Removing a link leaves its parent directories in place. If those parents are later deleted, restoring them requires `fix --parents` again.
+`--parents` creates missing link parent directories during creation or `fix`. It does not create files or directories on the target side. It is opt-in so a mistyped link parent directory is reported instead of silently created.
 
-No `relative` or `parents` settings are stored in the registry file. `--relative` determines the target text saved in `target`; `--parents` applies only to the current command. `fix` uses the saved target text without converting it again.
+No `relative` or `parents` settings are stored in the registry. `--relative` determines the target text to save; `--parents` applies only to the current command. `fix` uses the saved target without converting it again.
 
 ### Other options and built-in behavior
 
-`--dry-run` works for creation, `fix`, `remove`, and `adopt`, and makes no writes, including lock files, recovery records, or parent directories. Batch previews account for earlier planned registrations/removals. Recovery previews check registry edits and destination conflicts before showing a plan.
+- `--dry-run`: preview creation, `fix`, `remove`, or `adopt` without writing anything
+- `remove --keep-link`: unregister a link while leaving the actual link in place
+- `fix --replace`: explicitly replace a managed link whose target differs from the registry
 
-`--keep-link` works only with `remove`; `--replace` works only with `fix`. `--relative` works only with creation, and `--parents` works only with creation or `fix`. Invalid option combinations are errors.
+Automatic registration of newly created links, TOML formatting preservation, protection of ordinary files/directories, and allowing and reporting missing targets are always enabled. See [the default-behavior decisions](docs/defaults.md) for the tradeoffs.
 
-Automatic registration of newly created links, preservation of TOML formatting, protection of ordinary files/directories, and allowing and reporting missing targets are always enabled. See [the default-behavior decisions](docs/defaults.md) for the tradeoffs.
+### What `--` means
+
+`--` ends option parsing, so later arguments are treated literally as paths.
+
+```sh
+slink -- list ./list-link
+slink check -- -link
+```
+
+The first example treats `list` as a target rather than as the `list` subcommand. The second treats `-link` as a link name rather than as an option. For ordinary paths such as `./list-link` that do not begin with `-`, `check` does not need `--`.
 
 ## Safety and recovery
 
-Missing targets are allowed and reported. Ordinary files/directories are never overwritten by `fix --replace` or deleted by `remove`. An unregistered existing symbolic link must first be registered with `adopt`. A changed registered link must be explicitly replaced or unregistered with `--keep-link`.
+Missing targets are allowed and reported. `fix --replace` never overwrites ordinary files/directories, and `remove` never deletes them. An unregistered existing symbolic link must first be registered with `adopt`.
 
-The selected registry file, its control files, and their parent paths cannot themselves be managed link paths. Select a registry file elsewhere with `--file` if you need to manage a directory that would contain it.
+The selected registry file, its control files, and their parent paths cannot themselves be managed link paths. Use `--file` to select a registry elsewhere when necessary.
 
-Mutation commands use a registry lock and compare registry file contents again before saving. They retain a small operation record if a creation/registration, removal, or replacement is interrupted. Repeat the operation for the failed link with the same target and options to resume. `check` identifies the pending link; for a partly completed removal batch, omit paths already unregistered by earlier items. Unrelated mutations stop until recovery is resolved. Recovery rechecks the actual files and does not overwrite a conflicting manual edit.
+Mutation commands lock the registry and compare its contents again before saving. If creation/registration, removal, or replacement is interrupted, slink leaves a small operation record. Repeating the same operation for the failed link with the same target and options resumes it. `check` reports pending links. Recovery rechecks the actual files and does not overwrite conflicting manual edits.
 
-Replacement/removal stages the old link in a private directory beside its original location, verifies its identity, and deletes only that verified symbolic link. Unexpected objects are preserved. Replacement may briefly leave the link name absent.
+The ordinary file storing registry data can have adjacent `.slink-lock` and, while an operation is incomplete, `.slink-pending` control files. Do not delete those or `.slink-*` recovery directories before resolving an interrupted operation.
 
-The ordinary file storing the registry data can have adjacent control files named with `.slink-lock` and, while an operation is incomplete, `.slink-pending` suffixes; for example, `links.toml.slink-pending`. Do not delete pending files or `.slink-*` recovery directories before resolving an interrupted operation. Locks coordinate slink processes, not arbitrary editors. There is no whole-batch atomicity or unconditional power-loss guarantee; completed items are retained when a later item fails.
+There is no whole-batch atomicity or unconditional power-loss guarantee. Completed items remain completed if a later item fails.
 
-Supported paths and target text must be UTF-8. Nested managed link paths are unsupported, and ambiguous spellings of link paths are rejected conservatively. A missing parent path containing `..` must be resolved explicitly rather than guessed. Filesystem operations that cannot provide the required exclusive behavior fail rather than falling back to overwriting existing paths.
+Supported paths and target text must be UTF-8. Nested managed link paths are unsupported, and ambiguous link-path spellings are rejected conservatively.
 
 ## Exit codes
 
@@ -275,7 +283,7 @@ Supported paths and target text must be UTF-8. Nested managed link paths are uns
 | 1 | `check` found a problem, an item failed/conflicted, or traversal was incomplete |
 | 2 | Invalid arguments/registry file, unavailable registry file, or a blocking recovery error |
 
-Creating or fixing a link successfully returns 0 even if its target is missing. `check` returns 1 for that target. `scan` does not fail merely for finding a broken link. A mismatched link left unrepaired by normal `fix` returns 1.
+Creating or fixing a link successfully returns 0 even if its target is missing. `check` returns 1 for that target. `scan` does not fail merely because it finds a broken link. A mismatched link left unrepaired by normal `fix` returns 1.
 
 ## Development
 
@@ -286,4 +294,4 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-Integration tests run the real executable with isolated registry files and include abrupt interruption/recovery at each mutation stage. Failure injection is only compiled into debug builds; release executables ignore the test crash variable.
+Integration tests run the real executable with isolated registry files and include abrupt interruption/recovery at each mutation stage. Failure injection is compiled only into debug builds; release executables ignore the test crash variable.
