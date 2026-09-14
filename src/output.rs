@@ -353,6 +353,8 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
     outln!(
         "MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE"
     );
+    let mut entries = entries.iter().collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.link.cmp(&b.link));
     for entry in entries {
         let (link_state, target, target_state) = match &entry.health {
             ScanHealth::Managed {
