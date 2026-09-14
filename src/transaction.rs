@@ -1,4 +1,5 @@
 use crate::{
+    cli::{Args, Command},
     inspect::{snapshot, Snapshot},
     paths,
     registry::{atomic_write, Entry, Registry},
@@ -19,13 +20,36 @@ pub enum Operation {
     Replace,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Request {
+    command: String,
+    pub parents: bool,
+    force: bool,
+}
+
+impl From<&Args> for Request {
+    fn from(args: &Args) -> Self {
+        Self {
+            command: match args.command {
+                Command::Create => "create",
+                Command::Fix => "fix",
+                Command::Remove => "remove",
+                _ => "adopt",
+            }
+            .into(),
+            parents: args.parents,
+            force: args.force,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Pending {
     version: u8,
     pub op: Operation,
     pub entry: Entry,
     pub link: PathBuf,
-    pub parents: bool,
+    pub request: Request,
     before: Option<String>,
     after: String,
     old: Option<Snapshot>,
@@ -46,14 +70,20 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
     f.read_to_end(&mut data)?;
     let p: Pending = serde_json::from_slice(&data)
         .context("invalid pending operation; preserve this file for recovery")?;
-    paths::validate_target(&p.entry.target)?;
-    if p.version != 1 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
+    paths::registry_path(&p.entry.target, "pending target")?;
+    if p.version != 2 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
         bail!("invalid pending operation");
     }
     match p.op {
         Operation::Create if p.old.is_none() && p.backup.is_none() => {}
         Operation::Remove | Operation::Replace if p.old.is_some() && p.backup.is_some() => {}
         _ => bail!("invalid pending operation state"),
+    }
+    match (p.op, p.request.command.as_str()) {
+        (Operation::Create, "create" | "fix") => {}
+        (Operation::Replace, "create" | "fix") if p.request.force => {}
+        (Operation::Remove, "remove") if !p.request.force && !p.request.parents => {}
+        _ => bail!("invalid pending request"),
     }
     if let Some(b) = &p.backup {
         let dir = b.parent().context("invalid backup path")?;
@@ -77,7 +107,7 @@ pub fn begin(
     link: PathBuf,
     old: Option<Snapshot>,
     after: String,
-    parents: bool,
+    request: Request,
 ) -> Result<Pending> {
     r.verify()?;
     let backup = if old.is_some() {
@@ -90,11 +120,11 @@ pub fn begin(
         None
     };
     let pending = Pending {
-        version: 1,
+        version: 2,
         op,
         entry,
         link,
-        parents,
+        request,
         before: r
             .original
             .as_ref()
@@ -151,6 +181,9 @@ fn sync_parent(p: &Path) -> Result<()> {
 fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
     r.verify()?;
     r.validate_destination(&p.link)?;
+    if p.op != Operation::Remove {
+        paths::reject_self_reference(&p.link, &p.entry.target)?;
+    }
     let current = r.original.as_deref();
     if current != p.before.as_deref().map(str::as_bytes) && current != Some(p.after.as_bytes()) {
         bail!("registry differs from the pending operation; preserve the pending file and resolve the conflict");
@@ -189,7 +222,7 @@ fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
             None => {
                 let parent = p.link.parent().context("link parent")?;
                 paths::directory_location(parent)?;
-                if !p.parents && !parent.is_dir() {
+                if !p.request.parents && !parent.is_dir() {
                     bail!("link parent is missing; restore it before resuming");
                 }
             }
@@ -222,7 +255,7 @@ pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
         }
     }
     if p.op != Operation::Remove {
-        if p.parents {
+        if p.request.parents {
             fs::create_dir_all(p.link.parent().context("link parent")?)?;
         }
         match snapshot(&p.link)? {

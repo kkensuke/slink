@@ -20,19 +20,14 @@ pub struct Entry {
 pub struct Registry {
     pub requested: PathBuf,
     pub path: PathBuf,
-    pub base: PathBuf,
     pub original: Option<Vec<u8>>,
     pub doc: DocumentMut,
     pub entries: Vec<Entry>,
 }
 
 impl Registry {
-    pub fn open(file: Option<&Path>, allow_missing: bool) -> Result<Self> {
-        let requested = if let Some(f) = file {
-            paths::absolute(f)?
-        } else {
-            paths::default_registry_path()?
-        };
+    pub fn open(allow_missing: bool) -> Result<Self> {
+        let requested = paths::default_registry_path()?;
         let path = match fs::symlink_metadata(&requested) {
             Ok(_) => {
                 let p = fs::canonicalize(&requested).context("cannot resolve registry")?;
@@ -71,12 +66,12 @@ impl Registry {
                 .context("invalid TOML")?,
             None => {
                 let mut d = DocumentMut::new();
-                d["version"] = value(1);
+                d["version"] = value(2);
                 d
             }
         };
-        if doc.get("version").and_then(Item::as_integer) != Some(1) {
-            bail!("registry version must be 1");
+        if doc.get("version").and_then(Item::as_integer) != Some(2) {
+            bail!("registry version must be 2");
         }
         for (k, _) in doc.iter() {
             if k != "version" && k != "link" {
@@ -102,18 +97,14 @@ impl Registry {
                     .context("target must be a string")?
                     .to_owned();
                 paths::validate_link(&link)?;
-                paths::validate_target(&target)?;
+                let link = paths::text(&paths::registry_path(&link, "link")?)?.to_owned();
+                let target = paths::text(&paths::registry_path(&target, "target")?)?.to_owned();
                 entries.push(Entry { link, target });
             }
         }
-        let base = requested
-            .parent()
-            .context("registry has no parent")?
-            .to_path_buf();
         let r = Self {
             requested,
             path,
-            base,
             original,
             doc,
             entries,
@@ -134,7 +125,7 @@ impl Registry {
         Ok(r)
     }
     pub fn link(&self, entry: &Entry) -> Result<PathBuf> {
-        paths::link_from_registry(&entry.link, &self.base)
+        paths::registry_path(&entry.link, "link")
     }
     pub fn find(&self, p: &Path) -> Result<Option<usize>> {
         for (i, e) in self.entries.iter().enumerate() {
@@ -201,7 +192,27 @@ impl Registry {
         }
         Ok(())
     }
-    pub fn with_added(&self, entry: &Entry) -> DocumentMut {
+    pub fn with_entry(&self, entry: &Entry) -> Result<DocumentMut> {
+        if let Some(index) = self.find(Path::new(&entry.link))? {
+            let mut doc = self.doc.clone();
+            let table = doc["link"]
+                .as_array_of_tables_mut()
+                .expect("validated registry")
+                .get_mut(index)
+                .expect("entry exists");
+            for (field, text) in [("link", &entry.link), ("target", &entry.target)] {
+                if table[field].as_str() != Some(text) {
+                    let decor = table[field].as_value().expect("string").decor().clone();
+                    table[field] = value(text.clone());
+                    *table[field].as_value_mut().expect("string").decor_mut() = decor;
+                }
+            }
+            return Ok(doc);
+        }
+        Ok(self.with_added(entry))
+    }
+
+    fn with_added(&self, entry: &Entry) -> DocumentMut {
         let mut doc = self.doc.clone();
         if doc.get("link").is_none() {
             doc["link"] = Item::ArrayOfTables(ArrayOfTables::new());
@@ -244,7 +255,7 @@ impl Registry {
         self.verify()?;
         atomic_write(&self.path, bytes, self.original.is_some())?;
         // Keep exactly the file spelling selected by the user, including aliases.
-        *self = Self::open(Some(&self.requested), false)?;
+        *self = Self::open(false)?;
         Ok(())
     }
     // Advance a dry-run's registry in memory so later items see earlier plans.

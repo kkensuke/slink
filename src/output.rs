@@ -10,25 +10,49 @@ use std::{
     cmp::Ordering,
     collections::HashSet,
     fs,
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
+static STDOUT_ERROR: std::sync::OnceLock<io::Error> = std::sync::OnceLock::new();
+
+pub fn write_stdout(args: std::fmt::Arguments<'_>) {
+    if STDOUT_ERROR.get().is_none() {
+        if let Err(error) = io::stdout().lock().write_fmt(args) {
+            let _ = STDOUT_ERROR.set(error);
+        }
+    }
+}
+
+pub fn finish_stdout() -> Result<()> {
+    if STDOUT_ERROR.get().is_none() {
+        if let Err(error) = io::stdout().lock().flush() {
+            let _ = STDOUT_ERROR.set(error);
+        }
+    }
+    if let Some(error) = STDOUT_ERROR.get() {
+        if error.kind() != io::ErrorKind::BrokenPipe {
+            anyhow::bail!("cannot write stdout: {error}");
+        }
+    }
+    Ok(())
+}
+
 pub fn list(r: &Registry, format: OutputFormat) -> Result<u8> {
     if format == OutputFormat::Tsv {
-        println!("LINK\tTARGET");
+        outln!("LINK\tTARGET");
         for entry in &r.entries {
-            println!("{}\t{}", quoted(&entry.link), quoted(&entry.target));
+            outln!("{}\t{}", quoted(&entry.link), quoted(&entry.target));
         }
         return Ok(0);
     }
 
     let count = r.entries.len();
-    println!("{count} {}", plural(count, "link", "links"));
+    outln!("{count} {}", plural(count, "link", "links"));
     for entry in &r.entries {
-        println!();
-        println!("{}", display_link(&r.link(entry)?));
-        println!("  → {}", quoted(&entry.target));
+        outln!();
+        outln!("{}", display_link(&r.link(entry)?));
+        outln!("  → {}", quoted(&entry.target));
     }
     Ok(0)
 }
@@ -45,10 +69,10 @@ pub fn check(
                 p.op, p.link, p.entry.target
             );
         }
-        println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET");
+        outln!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET");
         for (link, target, diagnosis) in checked {
-            let actual = diagnosis.actual(target);
-            println!(
+            let actual = diagnosis.actual();
+            outln!(
                 "{}\t{}\t{}\t{}\t{}\t{}",
                 diagnosis.link.code(),
                 diagnosis.expected_health.code(),
@@ -65,31 +89,31 @@ pub fn check(
     let problems: Vec<_> = checked.iter().filter(|(_, _, d)| !d.is_healthy()).collect();
     let count = problems.len() + usize::from(pending.is_some());
     if count == 0 {
-        println!(
+        outln!(
             "OK {} {}",
             checked.len(),
             plural(checked.len(), "link", "links")
         );
         return;
     }
-    println!(
+    outln!(
         "{count} {} found ({} {} checked)",
         plural(count, "problem", "problems"),
         checked.len(),
         plural(checked.len(), "link", "links")
     );
     if let Some(p) = pending {
-        println!();
-        println!("! incomplete operation");
-        println!("  operation: {}", format!("{:?}", p.op).to_lowercase());
-        println!("  link: {}", display_link(&p.link));
-        println!("  target: {}", quoted(&p.entry.target));
-        println!("  repeat the original command with the same target and options to recover");
+        outln!();
+        outln!("! incomplete operation");
+        outln!("  operation: {}", format!("{:?}", p.op).to_lowercase());
+        outln!("  link: {}", display_link(&p.link));
+        outln!("  target: {}", quoted(&p.entry.target));
+        outln!("  repeat the original command with the same target and options to recover");
     }
     for (link, target, diagnosis) in problems {
-        println!();
+        outln!();
         for line in render_diagnosis(diagnosis, link, target) {
-            println!("{line}");
+            outln!("{line}");
         }
     }
 }
@@ -149,10 +173,10 @@ impl ScanEntry {
 
     fn actual_health(&self) -> &TargetHealth {
         match &self.health {
-            ScanHealth::Managed {
-                expected,
-                diagnosis,
-            } => diagnosis.actual(expected).expect("scanned symlink").1,
+            ScanHealth::Managed { diagnosis, .. } => diagnosis
+                .actual_health
+                .as_ref()
+                .expect("scanned symlink health"),
             ScanHealth::Unmanaged(health) => health,
         }
     }
@@ -170,8 +194,8 @@ struct ScanError {
     reason: String,
 }
 
-pub fn scan(r: &Registry, roots: &[String], format: OutputFormat) -> Result<u8> {
-    let (entries, errors) = collect_scan(r, roots)?;
+pub fn scan(r: &Registry, roots: &[String], recursive: bool, format: OutputFormat) -> Result<u8> {
+    let (entries, errors) = collect_scan(r, roots, recursive)?;
     let failed = !errors.is_empty() || entries.iter().any(ScanEntry::inspection_failed);
     if format == OutputFormat::Tsv {
         print_scan_tsv(&entries, &errors);
@@ -181,7 +205,11 @@ pub fn scan(r: &Registry, roots: &[String], format: OutputFormat) -> Result<u8> 
     Ok(u8::from(failed))
 }
 
-fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<ScanError>)> {
+fn collect_scan(
+    r: &Registry,
+    roots: &[String],
+    recursive: bool,
+) -> Result<(Vec<ScanEntry>, Vec<ScanError>)> {
     let mut entries = Vec::new();
     let mut errors = Vec::new();
     let mut visited = HashSet::new();
@@ -196,7 +224,7 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
             } else {
                 trimmed
             };
-            paths::absolute(Path::new(root))
+            paths::from_cli(root)
         })
         .collect::<Result<_>>()?;
 
@@ -267,7 +295,9 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
                 }
             };
             if file_type.is_dir() {
-                stack.push(path);
+                if recursive {
+                    stack.push(path);
+                }
                 continue;
             }
             if !file_type.is_symlink() {
@@ -324,7 +354,7 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
 }
 
 fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
-    println!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET\tLINK_STATE\tEXPECTED_TARGET_STATE\tEXPECTED_TARGET");
+    outln!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET\tLINK_STATE\tEXPECTED_TARGET_STATE\tEXPECTED_TARGET");
     for entry in entries {
         let (state, expected_health, expected_target) = match &entry.health {
             ScanHealth::Managed {
@@ -337,7 +367,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
             ),
             ScanHealth::Unmanaged(_) => ("", "", String::new()),
         };
-        println!(
+        outln!(
             "{}\t{}\t{}\t{}\t{state}\t{expected_health}\t{expected_target}",
             if entry.is_managed() {
                 "MANAGED"
@@ -379,7 +409,7 @@ fn print_scan_human(mut entries: Vec<ScanEntry>, errors: &[ScanError]) {
     let issue_count = entries.iter().filter(|entry| entry.has_issue()).count();
 
     if total == 0 && errors.is_empty() {
-        println!("No symlinks found.");
+        outln!("No symlinks found.");
         return;
     }
 
@@ -396,38 +426,38 @@ fn print_scan_human(mut entries: Vec<ScanEntry>, errors: &[ScanError]) {
 
     let mut wrote_section = false;
     if !managed.is_empty() {
-        println!("{}", heading(&format!("Managed ({})", managed.len())));
+        outln!("{}", heading(&format!("Managed ({})", managed.len())));
         print_scan_section(&managed);
         wrote_section = true;
     }
     if !unmanaged.is_empty() {
         if wrote_section {
-            println!();
+            outln!();
         }
-        println!("{}", heading(&format!("Unmanaged ({})", unmanaged.len())));
+        outln!("{}", heading(&format!("Unmanaged ({})", unmanaged.len())));
         print_scan_section(&unmanaged);
         wrote_section = true;
     }
     if !errors.is_empty() {
         if wrote_section {
-            println!();
+            outln!();
         }
-        println!("{}", heading(&format!("Scan errors ({})", errors.len())));
+        outln!("{}", heading(&format!("Scan errors ({})", errors.len())));
         for (index, error) in errors.iter().enumerate() {
             if index > 0 {
-                println!();
+                outln!();
             }
-            println!(
+            outln!(
                 "  {} {} — cannot scan",
                 problem_marker(),
                 display_link(&error.path)
             );
-            println!("    reason: {}", display_text(&error.reason));
+            outln!("    reason: {}", display_text(&error.reason));
         }
     }
 
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{total} {} found: {managed_count} managed, {unmanaged_count} unmanaged, {issue_count} {}",
         plural(total, "symlink", "symlinks"),
         plural(issue_count, "link issue", "link issues")
@@ -437,12 +467,12 @@ fn print_scan_human(mut entries: Vec<ScanEntry>, errors: &[ScanError]) {
 fn print_scan_section(entries: &[ScanEntry]) {
     for (index, entry) in entries.iter().enumerate() {
         if index > 0 {
-            println!();
+            outln!();
         }
         match &entry.health {
             ScanHealth::Managed { diagnosis, .. } if diagnosis.is_healthy() => {
-                println!("  {} {}", ok_marker(), display_link(&entry.link));
-                println!("    → {}", quoted(&entry.target));
+                outln!("  {} {}", ok_marker(), display_link(&entry.link));
+                outln!("    → {}", quoted(&entry.target));
             }
             ScanHealth::Managed {
                 expected,
@@ -452,12 +482,12 @@ fn print_scan_section(entries: &[ScanEntry]) {
                 for (line_index, line) in lines.iter().enumerate() {
                     if line_index == 0 {
                         if let Some(rest) = line.strip_prefix("! ") {
-                            println!("  {} {rest}", problem_marker());
+                            outln!("  {} {rest}", problem_marker());
                         } else {
-                            println!("  {line}");
+                            outln!("  {line}");
                         }
                     } else {
-                        println!("  {line}");
+                        outln!("  {line}");
                     }
                 }
             }
@@ -469,18 +499,18 @@ fn print_scan_section(entries: &[ScanEntry]) {
 fn print_unmanaged(entry: &ScanEntry) {
     match entry.actual_health().problem_label() {
         None => {
-            println!("  {} {}", ok_marker(), display_link(&entry.link));
-            println!("    → {}", quoted(&entry.target));
+            outln!("  {} {}", ok_marker(), display_link(&entry.link));
+            outln!("    → {}", quoted(&entry.target));
         }
         Some(problem) => {
-            println!(
+            outln!(
                 "  {} {} — {problem}",
                 problem_marker(),
                 display_link(&entry.link)
             );
-            println!("    → {}", quoted(&entry.target));
+            outln!("    → {}", quoted(&entry.target));
             if let Some(reason) = entry.actual_health().reason() {
-                println!("    reason: {}", display_text(reason));
+                outln!("    reason: {}", display_text(reason));
             }
         }
     }
@@ -552,23 +582,34 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
     let link = display_link(p);
     let mut lines = Vec::new();
     match &diagnosis.link {
-        LinkState::Match => match &diagnosis.expected_health {
-            TargetHealth::Reachable => {}
-            TargetHealth::Missing => {
-                lines.push(format!("! {link} — target is missing"));
-                lines.push(format!("  target: {}", quoted(expected)));
+        LinkState::Match(actual) => {
+            let (expected, health) = if let Some(health) = diagnosis
+                .actual_health
+                .as_ref()
+                .filter(|h| !h.is_reachable())
+            {
+                (actual.as_str(), health)
+            } else {
+                (expected, &diagnosis.expected_health)
+            };
+            match health {
+                TargetHealth::Reachable => {}
+                TargetHealth::Missing => {
+                    lines.push(format!("! {link} — target is missing"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                }
+                TargetHealth::ResolutionError(reason) => {
+                    lines.push(format!("! {link} — target cannot be resolved"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
+                }
+                TargetHealth::Unknown(reason) => {
+                    lines.push(format!("! {link} — cannot inspect target"));
+                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
+                }
             }
-            TargetHealth::ResolutionError(reason) => {
-                lines.push(format!("! {link} — target cannot be resolved"));
-                lines.push(format!("  target: {}", quoted(expected)));
-                lines.push(format!("  reason: {}", display_text(reason)));
-            }
-            TargetHealth::Unknown(reason) => {
-                lines.push(format!("! {link} — cannot inspect target"));
-                lines.push(format!("  target: {}", quoted(expected)));
-                lines.push(format!("  reason: {}", display_text(reason)));
-            }
-        },
+        }
         LinkState::Missing => {
             lines.push(format!("! {link} — link is missing"));
             push_target(&mut lines, "target", expected, &diagnosis.expected_health);
@@ -612,6 +653,8 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
 }
 
 pub fn display_link(p: &Path) -> String {
+    let cleaned = p.components().collect::<PathBuf>();
+    let p = cleaned.as_path();
     let compact = paths::home().ok().and_then(|home| {
         if p == home {
             Some("~".to_owned())

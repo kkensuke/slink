@@ -1,30 +1,7 @@
-use std::{fs, process::Command};
+use std::fs;
 
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: std::path::PathBuf,
-}
-
-impl Fixture {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        fs::create_dir(root.join("home")).unwrap();
-        Self { _dir: dir, root }
-    }
-
-    fn run(&self, args: &[&str]) -> std::process::Output {
-        Command::new(env!("CARGO_BIN_EXE_slink"))
-            .current_dir(&self.root)
-            .env("HOME", self.root.join("home"))
-            .env("XDG_CONFIG_HOME", self.root.join("config"))
-            .arg("--file")
-            .arg(self.root.join("links.toml"))
-            .args(args)
-            .output()
-            .unwrap()
-    }
-}
+mod support;
+use support::Fixture;
 
 #[test]
 fn check_tsv_uses_fixed_columns_and_one_row_per_link() {
@@ -73,7 +50,7 @@ fn check_tsv_keeps_mismatch_details_on_the_same_record() {
     assert_eq!(rows[0][4], "REACHABLE");
     assert_eq!(
         serde_json::from_str::<String>(rows[0][3]).unwrap(),
-        "expected"
+        f.path("expected").to_str().unwrap()
     );
     assert_eq!(
         serde_json::from_str::<String>(rows[0][5]).unwrap(),

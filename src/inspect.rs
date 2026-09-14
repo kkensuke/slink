@@ -46,7 +46,7 @@ impl TargetHealth {
 
 #[derive(Debug)]
 pub enum LinkState {
-    Match,
+    Match(String),
     Missing,
     Mismatch(String),
     Conflict(&'static str),
@@ -56,7 +56,7 @@ pub enum LinkState {
 impl LinkState {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::Match => "MATCH",
+            Self::Match(_) => "MATCH",
             Self::Missing => "MISSING",
             Self::Mismatch(_) => "MISMATCH",
             Self::Conflict(_) => "CONFLICT",
@@ -74,16 +74,19 @@ pub struct Diagnosis {
 
 impl Diagnosis {
     pub fn is_healthy(&self) -> bool {
-        matches!(self.link, LinkState::Match)
+        matches!(self.link, LinkState::Match(_))
             && matches!(self.expected_health, TargetHealth::Reachable)
+            && self
+                .actual_health
+                .as_ref()
+                .is_some_and(TargetHealth::is_reachable)
     }
 
-    pub fn actual<'a>(&'a self, expected: &'a str) -> Option<(&'a str, &'a TargetHealth)> {
+    pub fn actual(&self) -> Option<(&str, &TargetHealth)> {
         match &self.link {
-            LinkState::Match => Some((expected, &self.expected_health)),
-            LinkState::Mismatch(target) => Some((
-                target,
-                self.actual_health.as_ref().expect("mismatch health"),
+            LinkState::Match(actual) | LinkState::Mismatch(actual) => Some((
+                actual,
+                self.actual_health.as_ref().expect("observed target health"),
             )),
             _ => None,
         }
@@ -147,8 +150,11 @@ pub fn diagnose_snapshot(p: &Path, expected: &str, actual: Snapshot) -> Diagnosi
 
 fn diagnose_observation(p: &Path, expected: &str, actual: Result<Option<Snapshot>>) -> Diagnosis {
     let link = match &actual {
-        Ok(Some(s)) if s.target == expected => LinkState::Match,
-        Ok(Some(s)) => LinkState::Mismatch(s.target.clone()),
+        Ok(Some(s)) => match paths::target_matches(p, &s.target, expected) {
+            Ok(true) => LinkState::Match(s.target.clone()),
+            Ok(false) => LinkState::Mismatch(s.target.clone()),
+            Err(error) => LinkState::Unknown(error.to_string()),
+        },
         Ok(None) => LinkState::Missing,
         Err(error) => match fs::symlink_metadata(p) {
             Ok(metadata) if !metadata.file_type().is_symlink() => {
@@ -164,8 +170,8 @@ fn diagnose_observation(p: &Path, expected: &str, actual: Result<Option<Snapshot
         },
     };
     let expected_health = target_health(&paths::target_path(p, expected));
-    let actual_health = match &link {
-        LinkState::Mismatch(actual) => Some(target_health(&paths::target_path(p, actual))),
+    let actual_health = match &actual {
+        Ok(Some(snapshot)) => Some(target_health(&paths::target_path(p, &snapshot.target))),
         _ => None,
     };
     Diagnosis {

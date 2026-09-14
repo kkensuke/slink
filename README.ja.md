@@ -2,11 +2,15 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-macOS向けのシンボリックリンク管理CLIです。リンクを作成し、その内容を手編集できるTOMLファイルに記録して、あとから検査・復元・削除できます。
+手編集できる1つの TOML 管理ファイルで、シンボリックリンクを作成・管理する macOS 向け CLI です。
 
 ## インストール
 
-現在の安定版Rustツールチェーンを使用します。
+```sh
+brew install kkensuke/tap/slink
+```
+
+または、現在の stable Rust ツールチェーンでソースからビルドします。
 
 ```sh
 git clone https://github.com/kkensuke/slink.git
@@ -14,288 +18,218 @@ cd slink
 cargo install --path . --locked
 ```
 
-成功したmacOSのCIジョブからは、リリース用実行ファイルをActionsのartifactとして取得することもできます。利用対象のOSはmacOSです。LinuxのCIでは、共通の処理を検証します。
+成功した macOS CI ジョブからも、リリース用の実行ファイルを Actions artifact として取得できます。利用対象の OS は macOS で、Linux CI は移植可能な処理を検証します。リリースの保守手順は [Homebrew releases](docs/homebrew.md) にあります。
 
-## まず使ってみる
+## 最初の操作
 
-`slink <target> <link>` でシンボリックリンクを作成し、同時に管理ファイルへ登録します。最初は絶対パスで考えるのが簡単です。
-
-たとえば `/Users/you/dotfiles/nvim` を `/Users/you/.config/nvim` から使いたい場合は、次を実行します。
+両方の引数は作業ディレクトリを基準にします。slink は保存前に絶対パスへ変換します。
 
 ```sh
-slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
+cd /Users/you
+slink -p dotfiles/nvim .config/nvim
+slink list
+slink check
+slink fix -n
 ```
 
-これで `/Users/you/.config/nvim` というシンボリックリンクが作られ、`/Users/you/dotfiles/nvim` を指します。`--parents` は、リンクを置く親ディレクトリ `/Users/you/.config` がなければ作成します。すでに `/Users/you/.config/nvim` に通常のファイルやディレクトリがある場合は上書きしません。
+この操作は `/Users/you/.config/nvim` を作成して `/Users/you/dotfiles/nvim` を指すようにし、登録します。`-p` は親ディレクトリ `.config` がなければ作成します。target は作成しません。`.config/nvim` に通常ファイルやディレクトリがある場合は、変更せず競合を報告します。
 
-```mermaid
-flowchart TB
-    R["管理ファイル<br/>links.toml"]
-    L["管理するリンク<br/>/Users/you/.config/nvim"]
-    T["参照先<br/>/Users/you/dotfiles/nvim"]
-
-    R -. "link / target を記録" .-> L
-    L == "target" ==> T
-```
-
-図の `links.toml` は既定のファイル名です。固定名ではなく、`--file` で任意の名前・場所を選べます。既定の場所は後述の[ファイルの選択](#ファイルの選択)を参照してください。
-
-管理ファイルには概ね次のように保存されます。
+管理ファイルには次の内容が保存されます。
 
 ```toml
-version = 1
+version = 2
 
 [[link]]
 link = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
 
-あとは、登録内容の確認や復元を次のように行えます。
-
-```sh
-slink list
-slink check
-slink fix --dry-run
-```
-
-相対targetを保存したい場合は `--relative` を使えます。たとえば同じリンクを `../dotfiles/nvim` として保存できます。相対パスの基準や、プロジェクト用の管理ファイルを相対 `link` で手書きする方法は、後述の[パスのモデル](#パスのモデル)と[`--relative`](#--relative)を参照してください。
+存在しない target へのリンクは作成でき、その状態を報告します。target に到達できるようになるまで、`check` は問題として報告します。
 
 ## コマンド
 
 ```sh
-slink <target> <link>
-slink config
+slink [options] <target> <link>
+slink --config
 slink list
 slink check [link ...]
-slink fix [--parents] [--replace] [link ...]
-slink remove [--keep-link] <link ...>
-slink adopt <link ...>
-slink scan <directory ...>
+slink fix [options] [link ...]
+slink remove [options] <link ...>
+slink adopt [options] <link ...>
+slink scan [options] [directory ...]
 ```
 
 | コマンド | 役割 |
 | --- | --- |
-| `slink <target> <link>` | シンボリックリンクを作り、`link` / `target` を管理ファイルに追加する |
-| `slink config` | 既定の管理ファイルのパスだけをstdoutへ表示する。ファイルは作成しない |
-| `slink list` | 実際のリンクを検査せず、登録内容を表示する |
-| `slink check [link ...]` | 登録されたリンクが保存済みtargetと一致するか、targetへ到達できるかを検査する |
-| `slink fix [link ...]` | 欠落したリンクを復元する。不一致のリンクを置き換えるには `--replace` が必要 |
-| `slink remove <link ...>` | 登録内容と一致するリンクと登録項目を削除する。参照先は削除しない |
-| `slink adopt <link ...>` | 既存のシンボリックリンクを変更せず登録する |
-| `slink scan <directory ...>` | 指定したディレクトリ以下のシンボリックリンクを探索する。登録はしない |
+| `slink <target> <link>` | 実物と管理ファイルを CLI の指定に合わせる |
+| `slink --config` | ファイルやディレクトリを作らず、管理ファイルの場所を表示する |
+| `slink list` | リンクや target の健全性を検査せず、登録内容を表示する |
+| `slink check [link ...]` | 登録と実物の参照パスを照合し、target に到達できるか検査する |
+| `slink fix [link ...]` | 管理ファイルからリンクを復元する。異なる既存 symlink の変更には `-f` が必要 |
+| `slink remove <link ...>` | 登録と一致するリンクを削除し、登録解除する。target は削除しない |
+| `slink adopt <link ...>` | 既存 symlink を変更せず、その実物から登録を追加・更新する |
+| `slink scan [directory ...]` | 指定ディレクトリ直下のリンクを発見する。省略時は作業ディレクトリを使う |
 
-`check` と `fix` はリンクを省略すると、選択した管理ファイルの全項目を対象にします。`remove` と `adopt` ではリンクを明示します。`scan` は通常のディレクトリを再帰的に探索し、ディレクトリを指すシンボリックリンクは辿りません。
+`check` と `fix` は、リンクを指定しなければ全登録を対象にします。`remove` と `adopt` はリンクの明示指定が必要です。管理ファイルの項目を手で削除した場合は管理解除のみとなり、実物のリンクは削除しません。
 
-### リンクの配置先がすでに存在する場合
+### リンク配置先がすでに存在する場合
 
-たとえば次のコマンドでリンクの配置先は正確に `/Users/you/.config/nvim` です。
+第2引数は常にリンクそのものの配置先です。target のファイル名を付け足したり、既存の配置先ディレクトリの中にリンクを作ったりしません。
 
-```sh
-slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
-```
-
-| 配置先にあるもの | 結果 |
-| --- | --- |
-| 何もなく、未登録 | リンクを作成して登録する |
-| 通常のディレクトリ | エラー。中身も変更しない |
-| 通常のファイル | エラー。変更しない |
-| 未登録のシンボリックリンク | エラー。既存リンクを登録するには `adopt` を使う |
-| 登録済みで、登録targetと実際のtargetがコマンドのtargetと一致 | `UNCHANGED` と報告して成功する |
-| 登録済みだが、それ以外の状態 | エラー。`check` で確認し、必要に応じて `fix` を使う |
-
-target文字列は完全一致で比較します。異なる文字列が最終的に同じファイルへ到達しても、異なるtargetとして扱います。`--parents` や `fix --replace` でも通常のファイルやディレクトリは上書きしません。
-
-## パスのモデル
-
-シンボリックリンクは、参照先のパスを文字列として格納します。slinkでは次の用語を使います。
-
-- **link**: シンボリックリンクを置く場所
-- **target**: そのシンボリックリンクに格納するパス文字列
-- **カレントディレクトリ**: コマンドを実行するディレクトリ
-- **管理ファイル**: slinkの登録内容を保存するTOMLファイル
-- **管理ファイルのあるディレクトリ**: 選択した管理ファイルを置いているディレクトリ
-- **リンクの親ディレクトリ**: linkを含むディレクトリ
-
-絶対パスは `/` から始まるため、基準ディレクトリに依存しません。相対パスでは、どこを基準に解釈するかが重要です。
-
-### 相対パスの基準
-
-次の例では、カレントディレクトリを `/Users/you/demo`、管理ファイルを `/Users/you/demo/config/links.toml` とします。
-
-| 入力 | 基準・規則 | 例 |
+| リンク配置先の実物 | 通常の作成 | `-f` 付きの作成 |
 | --- | --- | --- |
-| CLIの `--file config/links.toml` | カレントディレクトリ | `/Users/you/demo/config/links.toml` |
-| CLIのlink引数 `run/nvim` | カレントディレクトリ | `/Users/you/demo/run/nvim` |
-| 管理ファイルの `link = "../run/nvim"` | 管理ファイルのあるディレクトリ | `/Users/you/demo/run/nvim` |
-| 相対target文字列 `../dotfiles/nvim` | リンクの親ディレクトリ | linkが `/Users/you/demo/run/nvim` なら `/Users/you/demo/dotfiles/nvim` |
-| CLIのtarget引数 `dotfiles/nvim`（`--relative` なし） | 文字列をそのまま格納。保存後はリンクの親ディレクトリから辿る | `dotfiles/nvim` を格納し、`/Users/you/demo/run/dotfiles/nvim` を参照 |
-| CLIのtarget引数 `dotfiles/nvim`（`--relative` あり） | カレントディレクトリから解釈し、リンクの親ディレクトリからの相対パスへ変換 | `../dotfiles/nvim` を格納し、`/Users/you/demo/dotfiles/nvim` を参照 |
+| 存在しない | リンクを作成し、登録を追加・更新する | 同じ |
+| 参照パスが一致する symlink | symlink を保持し、登録を追加・更新する | 同じ |
+| 参照パスが異なる symlink | 競合を報告し、`-f` を案内する | symlink を置換し、登録を追加・更新する |
+| 通常ファイル・ディレクトリ・その他の実物 | 競合を報告し、実物を保持する | 同じ |
 
-相対targetがリンクの親ディレクトリを基準にするのは、OSがシンボリックリンクをその規則で辿るためです。リンクを辿るときに、管理ファイルの場所は使われません。
-
-`--relative` を付けないCLIのtarget引数は、`ln -s` と同様、その文字列をそのまま格納します。たとえば `/Users/you/demo` で次を実行すると、格納されるtargetは文字列 `dotfiles/nvim` のままです。
+登録済み・未登録の symlink の両方で使えます。symlink と登録がすでに一致していれば、`UNCHANGED` と表示します。
 
 ```sh
-slink --parents dotfiles/nvim run/nvim
+slink -f ~/dotfiles/git/.gitconfig ~/.gitconfig
 ```
 
-その結果、OSは `/Users/you/demo/run` から `dotfiles/nvim` を辿るため、`/Users/you/demo/run/dotfiles/nvim` を参照します。
+新しい target 自体が symlink でも構いません。slink はその参照を保持し、連鎖の最終参照先には置き換えません。
 
-同じ入力をカレントディレクトリ `/Users/you/demo` の `dotfiles/nvim` として解釈し、その場所を正しく指す相対targetを作りたい場合は `--relative` を使います。
+## パス
+
+| 用語 | 意味 |
+| --- | --- |
+| link | シンボリックリンクを配置する場所 |
+| registered target | 管理ファイルに保存した絶対参照パス |
+| actual target | 既存 symlink から読み取った文字列。相対パスの場合もある |
+| working directory（作業ディレクトリ） | コマンドを実行するディレクトリ |
+
+| 入力・保存値 | ルール |
+| --- | --- |
+| CLI のすべてのパス | 絶対パス、作業ディレクトリ基準の相対パス、先頭 `~/` を受け付け、絶対パスに変換する |
+| 管理ファイルの `link` / `target` | 手編集も含め、絶対パスだけを受け付ける |
+| 新規作成・復元する symlink の target | 絶対パス |
+
+`~/` は入力時だけの省略表記です。通常は先にシェルが展開しますが、引用符で囲んだ場合も slink が受け付けます。管理ファイル内の `~`、変数、シェル式は展開しません。管理ファイルの不正な相対パスには、絶対パスの例を添えてエラーを報告します。
+
+余分な `.` は取り除きます。`..` は、その直前のパスが通常ディレクトリだと確認できた場合だけ整理し、symlink・存在しない場所・検査できない場所を通る場合は保持します。target の末尾の `/` や `/.` によるディレクトリ指定も保持します。変換時に target の symlink を最終参照先へ置き換えることはありません。最終的に同じファイルへ到達しても、異なる参照パスは不一致になる場合があります。
+
+例えば、管理ファイルに次の連鎖の最初のリンクを登録し、その target 自体を別の symlink にできます。
+
+```mermaid
+flowchart TD
+    R["links.toml"]
+    L["/Users/you/.gitconfig"]
+    T["/Users/you/dotfiles/git/.gitconfig"]
+    F["/Users/you/store/gitconfig"]
+    R -. "link" .-> L
+    R -. "target" .-> T
+    L --> T
+    T --> F
+```
+
+### 既存の相対リンクを adopt する場合
+
+`adopt` は既存の相対 target を、リンクが実際に格納されているディレクトリを基準に読み取り、絶対参照パスにして保存します。既存 symlink は書き換えません。symlink から読んだ文字列は OS のデータなので、そこにある文字どおりの `~` は展開しません。
+
+`/Users/you/bin/python3` というリンクが `python` を格納していれば、`adopt` は `/Users/you/bin/python` を registered target として保存します。`check` と `fix` も同じ変換を使って実物と登録を照合します。一致する相対リンクは保持します。リンクが削除された場合、`fix` は絶対 target で復元するため、元の相対表記は保存されません。
 
 ```sh
-slink --relative --parents dotfiles/nvim run/nvim
+slink adopt ~/bin/python3
+slink check ~/bin/python3
+slink fix ~/bin/python3
 ```
-
-この場合、格納されるtargetは `../dotfiles/nvim` です。
 
 ## 管理ファイル
 
-### ファイルの選択
-
-`XDG_CONFIG_HOME` に `/Users/you/config` のような絶対パスが設定されている場合、既定の管理ファイルは `$XDG_CONFIG_HOME/slink/links.toml` です。未設定、空、または `config` や `./config` のような相対パスの場合は `~/.config/slink/links.toml` を使います。ここでいう「相対」は環境変数の値についてであり、`--relative` とは無関係です。
-
-`slink config` は、この既定の管理ファイルのパスをstdoutへ1行だけ表示します。ファイルや親ディレクトリは作りません。たとえば `code "$(slink config)"` のように、別のコマンドへそのまま渡せます。
-
-`--file` は別の管理ファイルを1つだけ選択します。複数ファイルの結合や自動探索はしません。相対 `--file` はカレントディレクトリ基準です。
+`XDG_CONFIG_HOME` が絶対パスなら、管理ファイルは `$XDG_CONFIG_HOME/slink/links.toml` です。未設定・空・`config` や `./config` のような相対パスの場合は、`~/.config/slink/links.toml` を使います。作成または adopt の際、必要なら管理ファイルを初期化します。`scan` は管理ファイルがなくても実行できます。
 
 ```sh
-cd /Users/you/demo
-slink --file config/links.toml check
+slink --config
+code "$(slink --config)"
 ```
 
-この場合は `/Users/you/demo/config/links.toml` を使います。
+1件の登録は、完全な `[[link]]` ブロック1つです。スキーマは version 2 で、各ブロックには `link` と `target` の2項目だけを記述します。両方とも絶対パスが必要です。旧スキーマと、廃止した `--file`・`--relative`・`--replace` は拒否します。`config` は通常のファイル名として扱い、管理ファイルの場所の表示には `--config` を使います。
 
-### 管理ファイルの `link` に相対パスを使う
-
-CLIで作成または `adopt` すると、管理ファイルの `link` は絶対パスで書き込まれます。通常の個人用設定では、この形式が最も分かりやすいでしょう。
-
-一方、プロジェクト用の管理ファイルを手で書く場合は、相対 `link` が便利です。
-
-```toml
-version = 1
-
-[[link]]
-link = "../run/nvim"
-target = "../dotfiles/nvim"
-```
-
-管理ファイルが `/Users/you/demo/config/links.toml` にあるなら、この `link` は `/Users/you/demo/run/nvim` を意味します。管理ファイルとリンクの位置関係を保ったままプロジェクト全体を移動すれば、同じTOMLを使い続けられます。
-
-相対 `link` は必須ではありません。個人用の管理ファイルでは、絶対パスまたは `~/...` の方が読みやすい場合があります。slinkは、他の項目を変更するときも手書きのパス表記、コメント、順序、引用符の種類、CRLF改行を保持します。
-
-### `~`・変数・シェルによる展開
-
-次のコマンドでは、`ln` や `slink` が起動する前にシェルが `~` や `$HOME` を展開します。
-
-```sh
-slink ~/dotfiles/nvim ~/.config/nvim
-slink "$HOME/dotfiles/nvim" "$HOME/.config/nvim"
-```
-
-TOMLはシェルで評価されません。管理ファイルの `link` が `~/` で始まる場合だけ、slinkがホームディレクトリへ展開します。変数やシェル式は展開しません。
-
-管理ファイルの `target` は、シンボリックリンクに格納する文字列そのものです。したがって `target = "~/dotfiles/nvim"` の `~` はホームディレクトリとして展開されません。これにより、`adopt` で既存リンクのtarget文字列を記録し、`fix` で意味を変えず再現できます。
-
-### 項目を手で編集する
-
-1つの登録項目は、`link` と `target` を含む完全な `[[link]]` ブロックです。
-
-| 手編集 | 効果 |
+| 手編集 | 結果 |
 | --- | --- |
-| 項目を追加する | `fix` で欠落したリンクを作成できる |
-| `target` を変更する | 既存リンクは `fix --replace` を実行したときだけ変更される |
-| 項目全体を削除する | 実リンクは残るが、この管理ファイルの `list`・`check`・`fix` 対象から外れる |
-| `link` を変更する | 古いリンクは残り、その登録はなくなる。`fix` で新しいlinkを作成できる |
+| 項目を追加 | `fix` で不足するリンクを作成できる |
+| `target` を変更 | `fix -f` で異なる既存 symlink を更新できる |
+| 項目全体を削除 | リンクは残り、list・check・fix の対象から外れる |
+| `link` を変更 | 古いリンクは未登録のまま残り、`fix` で新しいリンクを作成できる |
 
-リンクと登録項目を両方削除する場合は、項目が残っている間に `slink remove <link>` を実行します。`slink remove --keep-link <link>` はリンクを残して登録だけ削除します。
+リンクと登録を両方削除するには、項目が残っている間に `remove` を使います。`remove -k` は実物を残します。手で変更した symlink に既存登録を合わせる場合は `adopt` を使います。
 
-### 管理ファイル自体がシンボリックリンクの場合
+CLI による編集は、コメント・順序・改行形式を保持し、無関係な値を変更しません。管理ファイル自体が symlink の場合は、参照先の通常ファイルを更新し、管理ファイルの symlink は保持します。
 
-slinkは管理ファイルの参照先の通常ファイルを更新し、管理ファイルのシンボリックリンク自体は残します。相対 `link` の基準は、参照先ではなく、**選択した管理ファイルのパス**があるディレクトリです。
+## オプション
 
-たとえば `/Users/you/demo/config/links.toml` が `/Users/you/store/shared.toml` へのシンボリックリンクでも、`link = "../run/nvim"` は `/Users/you/demo/run/nvim` を指定します。
+| 短縮形 | 長い形式 | 対象 |
+| --- | --- | --- |
+| `-c` | `--config` | 管理ファイルの場所だけを表示 |
+| `-f` | `--force` | 作成・fix：異なる symlink を置換 |
+| `-p` | `--parents` | 作成・fix：不足するリンクの親ディレクトリを作成 |
+| `-n` | `--dry-run` | 変更コマンド：書き込まず変更予定を表示 |
+| `-k` | `--keep-link` | remove：登録だけを解除 |
+| `-R` | `--recursive` | scan：通常のサブディレクトリを再帰探索 |
+| `-o` | `--format <human\|tsv>` | list・check・scan：出力形式 |
+| `-h` | `--help` | ヘルプ |
+| `-V` | `--version` | バージョン |
 
-## オプションと既定動作
+短縮形は `-np` のように連結できます。出力形式は `-o tsv`・`-otsv`・`--format tsv`・`--format=tsv` を受け付けます。情報表示オプション（`--config`・`--help`・`--version`）は単独で使います。不正な組合せは、変更を行う前に拒否します。
 
-### `--relative`
-
-`--relative` がなければ、slinkはtarget引数を `ln -s` と同様にそのまま格納します。絶対targetを指定すれば、最初の例のように挙動が明確です。
-
-`--relative` がある場合、slinkはtarget引数をカレントディレクトリから解釈し、リンクの親ディレクトリから見た相対パスへ変換して保存します。
-
-```sh
-cd /Users/you/demo
-slink --relative --parents dotfiles/nvim run/nvim
-```
-
-この場合、target引数は `dotfiles/nvim`、保存されるtargetは `../dotfiles/nvim`、CLIが管理ファイルへ書くlinkは絶対パス `/Users/you/demo/run/nvim` です。
-
-相対targetは、target側とlink側を含むディレクトリ構造をまとめて移動するときに便利です。一方、linkだけを別の場所へ移すと壊れる場合があります。このため、`--relative` は任意指定です。
-
-#### targetの経路に別のシンボリックリンクがある場合
-
-`--relative` は、指定したtargetの経路に含まれるシンボリックリンクを勝手に最終参照先へ置き換えません。
-
-たとえば `/Users/you/demo/dotfiles/current` が `nvim` を指す既存シンボリックリンクなら、次のコマンドは `current` という経路を保ちます。
-
-```sh
-cd /Users/you/demo
-slink --relative --parents dotfiles/current run/nvim
-```
-
-保存されるtargetは `../dotfiles/current` です。あとから `current` の参照先を変更すれば、管理されている `run/nvim` も新しい参照先を辿ります。
-
-同様に、target経路にある意味のある `..` も保持します。これは、シンボリックリンクを途中で通る場合に `..` を単純化すると別の場所を指すことがあるためです。
-
-### `--parents`
-
-`--parents` は作成または `fix` の際に、不足しているリンクの親ディレクトリを作ります。target側のファイルやディレクトリは作りません。リンク配置先の入力ミスを黙ってディレクトリ作成で隠さないよう、任意指定です。
-
-管理ファイルには `relative` や `parents` の設定は保存しません。`--relative` は保存するtarget文字列を決め、`--parents` はそのコマンドだけに作用します。`fix` は保存済みtargetを再変換せず使います。
-
-### その他のオプションと標準動作
-
-- `--dry-run`: 作成・`fix`・`remove`・`adopt` の変更予定を表示し、一切書き込まない
-- `remove --keep-link`: 実リンクを残し、登録だけ削除する
-- `fix --replace`: 登録と異なるtargetを指す管理済みリンクを明示的に置き換える
-
-新しく作ったリンクの自動登録、TOML書式の保持、通常ファイル・ディレクトリの保護、存在しないtargetの許可と報告は常に有効です。判断理由は[既定動作の説明](docs/defaults.md)を参照してください。
-
-### `--` の意味
-
-`--` はオプション解析を終了し、それ以降の引数をそのままパスとして扱います。
+`--` はオプション名・コマンド名の解析を終了します。
 
 ```sh
 slink -- list ./list-link
 slink check -- -link
 ```
 
-最初の例では `list` をサブコマンドではなくtargetとして扱います。2つ目では `-link` をオプションではなくリンク名として扱います。`./list-link` のように `-` で始まらない通常のパスでは、`check` の前の `--` は不要です。
+最初のコマンドは、作業ディレクトリにある `list` というファイルを target にします。2つ目は、`-link` という名前の登録済みリンクを検査します。`./list-link` のような通常のパスは、コマンドの後に `--` を付ける必要がありません。
+
+親の作成・置換・dry-run・削除時のリンク保持・再帰探索は明示指定です。新規リンクは常に登録し、存在しない target も許可して報告します。管理ファイルにコマンドのオプションは保存しません。[デフォルトの判断](docs/defaults.md)も参照してください。
+
+## scan と出力
+
+```sh
+slink scan
+slink scan -R ~/github
+slink scan ~/Library/Services
+slink list -o tsv
+slink check -o tsv
+```
+
+scan は `-R` がなければ直下だけを探索します。再帰探索では `.venv` や `.workflow` バンドルのような通常ディレクトリも対象です。ディレクトリへの symlink は表示しますが、中へは入りません。探索開始パスそのものが symlink の場合は、末尾に `/` を付けた場合も拒否します。重複する開始パスや親子の開始パスを指定しても、同じリンクを重複表示しません。
+
+管理状態はリンクの配置先で決まります。`~/Library/Services` のリンクを登録しても、その target がある `~/github` のディレクトリ内のリンクは自動登録されません。そのため、`check` が全登録を正常と報告していても、`scan` が workflow 内に別の未管理リンクを発見する場合があります。
+
+human 出力では、scan の結果を管理中・未管理に分け、それぞれ問題のあるリンクを先に表示します。正常な `check` は `OK N links` だけを表示します。ホームディレクトリ内のリンク配置先は `~/…` に省略表示する場合がありますが、管理ファイルの値は絶対パスです。target は引用符で囲み、制御文字をエスケープします。色は端末への出力時だけ有効で、`NO_COLOR` または `TERM=dumb` で無効にできます。
+
+TSV はヘッダー付きの1リンク1行です。
+
+| コマンド | 列の順序 |
+| --- | --- |
+| list | `LINK`, `TARGET` |
+| check | `LINK_STATE`, `TARGET_STATE`, `LINK`, `TARGET`, `ACTUAL_TARGET_STATE`, `ACTUAL_TARGET` |
+| scan | `MANAGEMENT`, `TARGET_STATE`, `LINK`, `TARGET`, `LINK_STATE`, `EXPECTED_TARGET_STATE`, `EXPECTED_TARGET` |
+
+パス・target のセルは JSON 文字列、値がない任意セルは空欄とし、診断の理由は stderr に出します。check の `TARGET` は登録済みの絶対 target、`ACTUAL_TARGET` は実物から読んだ文字列です。scan の `TARGET` は実物の文字列、`EXPECTED_TARGET` は登録済みの絶対 target です。そのため、adopt した一致するリンクでも、これらの列の文字列が異なる場合があります。
 
 ## 保護と復旧
 
-存在しないtargetへのリンクは作成でき、その状態を報告します。`fix --replace` が通常のファイルやディレクトリを上書きしたり、`remove` がそれらを削除したりすることはありません。未登録の既存シンボリックリンクは、先に `adopt` で登録する必要があります。
+force が置換するのは symlink だけです。remove が削除するのは登録と一致する symlink だけで、target は削除しません。作成・復元時の直接の自己参照は拒否します。管理するリンク配置先の親子関係と、管理ファイルや制御ファイルに重なる配置先には対応しません。パスと target の文字列は正しい UTF-8 である必要があります。
 
-選択した管理ファイル、制御用ファイル、それらの親パスは、管理するリンクの配置先にできません。必要なら `--file` で別の場所の管理ファイルを選択してください。
+変更操作は管理ファイルをロックし、同時編集を検出して、原子的に保存します。ファイルシステムの変更計画は dry-run と共有します。作成・削除・置換が中断した場合は、同じコマンドを同じ target・オプションで再実行すると復旧します。`check` は未完了の復旧を報告します。別のコマンドが未完了操作を引き継ぐことはできません。
 
-変更コマンドは管理ファイルをロックし、保存前に内容を再確認します。作成・登録、削除、置換が中断された場合は小さな操作記録を残し、同じtargetとオプションで再実行すると再開できます。`check` は未完了のリンクを報告します。復旧時には実際のファイルを再検査し、競合する手編集を上書きしません。
-
-登録情報の実体を保存する通常ファイルの隣には `.slink-lock`、未完了操作がある間は `.slink-pending` という接尾辞の制御用ファイルが置かれることがあります。未完了操作を解決する前に、これらや `.slink-*` の復旧用ディレクトリを削除しないでください。
-
-複数項目をまとめた原子性や、あらゆる電源断からの復旧は保証しません。後続項目が失敗しても、すでに完了した項目は保持します。
-
-対応するパスとtarget文字列はUTF-8である必要があります。管理するリンク配置先の入れ子には対応しません。曖昧なパス表記は安全側に倒して拒否します。
+管理ファイルの隣に `.slink-lock`・`.slink-pending`、置換・削除時には一時的な `.slink-*` 復旧ディレクトリが残る場合があります。復旧完了まで保持してください。複数項目の処理では、後の項目が失敗しても完了済みの項目は保持します。バッチ全体の原子性や、電源断に対する無条件の保証はありません。
 
 ## 終了コード
 
 | コード | 意味 |
 | --- | --- |
-| 0 | 要求した操作が完了した。`check` では選択した全項目が正常 |
-| 1 | `check` が問題を検出した、項目処理が失敗・競合した、または探索が不完全だった |
-| 2 | 引数・管理ファイルが不正、管理ファイルを利用できない、または復旧を妨げるエラーがある |
+| 0 | 操作が完了。check では選択した全項目が正常 |
+| 1 | check の問題検出、項目の失敗・競合、scan の検査不能 |
+| 2 | 引数・管理ファイルの不正、管理ファイルの利用不能、復旧の中断 |
 
-リンクの作成や復元に成功すれば、targetが存在しなくても0を返します。そのtargetに対する `check` は1を返します。`scan` は壊れたリンクを見つけただけでは失敗しません。通常の `fix` が不一致リンクを修復せず残した場合は1を返します。
+作成・fix が成功すれば、target 不在でも0を返し、check はその不在に1を返します。scan は権限・I/O エラーには1を返しますが、不在・解決不能の target を発見しただけでは失敗にしません。`-f` のない fix で異なる symlink が未修復のまま残った場合は1を返します。
+
+stdout のパイプ先が閉じた場合は、panic を起こさず以後の出力を止め、操作本来の終了コードを返します。それ以外の stdout 書き込みエラーは2を返します。
 
 ## 開発
 
@@ -306,4 +240,4 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-統合テストは、独立した管理ファイルを使って実際の実行ファイルを動かし、変更の各段階での強制終了と復旧も検証します。障害を意図的に発生させる仕組みはデバッグビルドだけに組み込まれ、リリース用実行ファイルはテスト用の強制終了変数を無視します。
+統合テストは、ホーム・設定ディレクトリを隔離して実行ファイルを動かします。中断・復旧、参照パス、管理ファイルの編集、出力、scan の深さを検証します。macOS CI では、大文字・小文字を区別する APFS と区別しない APFS も検証します。失敗注入は debug ビルドにだけ組み込み、release 実行ファイルはテスト用のクラッシュ変数を無視します。

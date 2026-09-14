@@ -21,12 +21,91 @@ pub fn default_registry_path() -> Result<PathBuf> {
     };
     Ok(root.join("slink/links.toml"))
 }
+// Preserve symlink references and directory-only suffixes. Only collapse a
+// parent component when the preceding object is known to be an ordinary dir.
+// Missing/inaccessible components and symlink/.. retain their OS meaning.
+pub fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in p.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir
+                if out.file_name().is_some()
+                    && std::fs::symlink_metadata(&out).is_ok_and(|m| m.is_dir()) =>
+            {
+                out.pop();
+            }
+            Component::ParentDir if out == Path::new("/") => {}
+            _ => out.push(component.as_os_str()),
+        }
+    }
+    let bytes = p.as_os_str().as_encoded_bytes();
+    if out != Path::new("/") {
+        if bytes.ends_with(b"/") {
+            out.push("");
+        } else if bytes.ends_with(b"/.") {
+            out.push(".");
+        }
+    }
+    out
+}
+
 pub fn absolute(p: &Path) -> Result<PathBuf> {
-    Ok(if p.is_absolute() {
+    Ok(normalize(&if p.is_absolute() {
         p.to_path_buf()
     } else {
         std::env::current_dir()?.join(p)
-    })
+    }))
+}
+
+pub fn from_cli(s: &str) -> Result<PathBuf> {
+    validate_target(s)?;
+    let path = if s == "~" {
+        home()?
+    } else if let Some(rest) = s.strip_prefix("~/") {
+        home()?.join(rest)
+    } else {
+        PathBuf::from(s)
+    };
+    absolute(&path)
+}
+
+pub fn registry_path(s: &str, field: &str) -> Result<PathBuf> {
+    validate_target(s)?;
+    if !Path::new(s).is_absolute() {
+        let example = from_cli(s)?;
+        bail!("registry {field} must be an absolute path: {s:?}; replace it with an absolute path such as {example:?} (using the current working directory for relative input)");
+    }
+    Ok(normalize(Path::new(s)))
+}
+
+pub fn target_from_cli(s: &str) -> Result<String> {
+    Ok(text(&from_cli(s)?)?.to_owned())
+}
+
+// readlink() is OS data: a literal '~' is not a home-directory abbreviation.
+// Resolve only the link's containing directory, never the target symlinks.
+pub fn reference_target(link: &Path, target: &str) -> Result<String> {
+    validate_target(target)?;
+    let path = if Path::new(target).is_absolute() {
+        PathBuf::from(target)
+    } else {
+        directory_location(link.parent().context("link has no parent")?)?.join(target)
+    };
+    Ok(text(&normalize(&path))?.to_owned())
+}
+
+pub fn target_matches(link: &Path, actual: &str, expected: &str) -> Result<bool> {
+    Ok(reference_target(link, actual)? == reference_target(link, expected)?)
+}
+
+pub fn reject_self_reference(link: &Path, target: &str) -> Result<()> {
+    if let Ok(target_key) = key(Path::new(target)) {
+        if key(link)? == target_key {
+            bail!("target refers directly to the link itself: {link:?}");
+        }
+    }
+    Ok(())
 }
 pub fn validate_link(s: &str) -> Result<()> {
     if s.is_empty()
@@ -46,20 +125,10 @@ pub fn validate_target(s: &str) -> Result<()> {
 }
 pub fn link_from_cli(s: &str) -> Result<PathBuf> {
     validate_link(s)?;
-    absolute(Path::new(s))
+    let link = from_cli(s)?;
+    validate_link(text(&link)?)?;
+    Ok(link)
 }
-pub fn link_from_registry(s: &str, base: &Path) -> Result<PathBuf> {
-    validate_link(s)?;
-    if let Some(rest) = s.strip_prefix("~/") {
-        return Ok(home()?.join(rest));
-    }
-    Ok(if Path::new(s).is_absolute() {
-        s.into()
-    } else {
-        base.join(s)
-    })
-}
-
 // Resolve existing directories without collapsing .. across a symlink. A missing
 // suffix may contain only normal names: future traversal through .. is ambiguous.
 pub fn directory_location(p: &Path) -> Result<PathBuf> {
@@ -137,37 +206,6 @@ pub fn overlaps(a: &Path, b: &Path) -> Result<bool> {
         }
     }
     Ok(false)
-}
-
-pub fn relative_target(target: &str, link: &Path) -> Result<String> {
-    validate_target(target)?;
-    let target = absolute(Path::new(target))?;
-    let base = directory_location(link.parent().context("link has no parent")?)?;
-    let b: Vec<_> = base.components().collect();
-    let t: Vec<_> = target.components().collect();
-    let common = b
-        .iter()
-        .zip(&t)
-        .take_while(|(a, b)| a == b && !matches!(a, Component::ParentDir))
-        .count();
-    let mut out = PathBuf::new();
-    for _ in &b[common..] {
-        out.push("..");
-    }
-    // Keep target-side symlinks and ParentDir components as a reference path.
-    for c in &t[common..] {
-        out.push(c.as_os_str());
-    }
-    if out.as_os_str().is_empty() {
-        out.push(".");
-    }
-    let mut result = text(&out)?.to_owned();
-    if target.as_os_str().as_encoded_bytes().ends_with(b"/") {
-        result.push('/');
-    } else if target.as_os_str().as_encoded_bytes().ends_with(b"/.") {
-        result.push_str("/.");
-    }
-    Ok(result)
 }
 
 pub fn target_path(link: &Path, target: &str) -> PathBuf {

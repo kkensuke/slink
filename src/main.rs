@@ -1,3 +1,12 @@
+// Route stdout through one sink so a closed pipe never becomes a Rust panic.
+macro_rules! out {
+    ($($args:tt)*) => { crate::output::write_stdout(format_args!($($args)*)) };
+}
+macro_rules! outln {
+    () => { out!("\n") };
+    ($($args:tt)*) => { out!("{}\n", format_args!($($args)*)) };
+}
+
 mod cli;
 mod engine;
 mod inspect;
@@ -17,7 +26,9 @@ fn run() -> Result<u8> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    engine::run(cli::Args::parse(args)?)
+    let result = engine::run(cli::Args::parse(args)?);
+    output::finish_stdout()?;
+    result
 }
 
 fn main() {
