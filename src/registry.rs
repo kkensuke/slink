@@ -66,6 +66,9 @@ impl Registry {
             }
             Err(e) => return Err(e).with_context(|| format!("cannot read registry {requested:?}")),
         };
+        Self::parse(requested, path, original)
+    }
+    fn parse(requested: PathBuf, path: PathBuf, original: Option<Vec<u8>>) -> Result<Self> {
         let doc = match &original {
             Some(b) => std::str::from_utf8(b)?
                 .parse::<DocumentMut>()
@@ -226,6 +229,15 @@ impl Registry {
         atomic_write(&self.path, bytes, self.original.is_some())?;
         // Keep exactly the file spelling selected by the user, including aliases.
         *self = Self::open(Some(&self.requested), false)?;
+        Ok(())
+    }
+    // Advance a dry-run's registry in memory so later items see earlier plans.
+    pub fn preview_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        *self = Self::parse(
+            self.requested.clone(),
+            self.path.clone(),
+            Some(bytes.to_vec()),
+        )?;
         Ok(())
     }
 }

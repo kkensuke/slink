@@ -67,20 +67,29 @@ pub fn run(args: Args) -> Result<u8> {
             bail!("PENDING: repeat the original operation with the same target and options before making other changes");
         }
         if args.dry_run {
-            println!("RECOVER\t{:?}\t{:?}", p.op, p.link);
-            return Ok(0);
+            transaction::preview(&mut r, &p)?;
+            println!("WOULD_RECOVER\t{:?}\t{:?}", p.op, p.link);
+        } else {
+            transaction::finish(&mut r, &p)
+                .context("recovery stopped; pending operation retained")?;
+            println!("RECOVERED\t{:?}", p.link);
         }
-        transaction::finish(&mut r, &p).context("recovery stopped; pending operation retained")?;
-        println!("RECOVERED\t{:?}", p.link);
         if args.command == Command::Create {
             inspect::warn_target(&p.link, &p.entry.target);
             return Ok(0);
         }
         // The original removal may already be unregistered. Do not remove a new
         // object that appeared at its path after the interrupted operation.
-        if args.command == Command::Remove {
-            let rest = args
-                .operands
+        {
+            let operands = if args.operands.is_empty() {
+                r.entries
+                    .iter()
+                    .map(|e| Ok(paths::text(&r.link(e)?)?.to_owned()))
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                args.operands.clone()
+            };
+            let rest = operands
                 .iter()
                 .filter(|s| paths::link_from_cli(s).ok().as_ref() != Some(&p.link))
                 .cloned()
@@ -244,7 +253,7 @@ fn mutate_many(r: &mut Registry, a: &Args, operands: &[String]) -> Result<u8> {
                 eprintln!("ERROR\t{p:?}\t{e:#}");
                 failed = true;
             }
-            if transaction::load(r)?.is_some() {
+            if !a.dry_run && transaction::load(r)?.is_some() {
                 break;
             }
         }
@@ -260,7 +269,7 @@ fn mutate_many(r: &mut Registry, a: &Args, operands: &[String]) -> Result<u8> {
                 eprintln!("ERROR\t{p:?}\t{err:#}");
                 failed = true;
             }
-            if transaction::load(r)?.is_some() {
+            if !a.dry_run && transaction::load(r)?.is_some() {
                 eprintln!(
                     "PENDING: stopped subsequent changes; repeat the original command to recover"
                 );
@@ -290,11 +299,14 @@ fn adopt(r: &mut Registry, a: &Args, p: &Path) -> Result<()> {
         if a.dry_run { "WOULD_" } else { "" },
         e.target
     );
-    if !a.dry_run {
-        if inspect::snapshot(p)?.as_ref() != Some(&s) {
-            bail!("symlink changed before registration");
-        }
-        r.save_bytes(r.render(&r.with_added(&e)).as_bytes())?;
+    if inspect::snapshot(p)?.as_ref() != Some(&s) {
+        bail!("symlink changed before registration");
+    }
+    let after = r.render(&r.with_added(&e));
+    if a.dry_run {
+        r.preview_bytes(after.as_bytes())?;
+    } else {
+        r.save_bytes(after.as_bytes())?;
     }
     inspect::warn_target(p, &e.target);
     Ok(())
@@ -351,7 +363,9 @@ fn remove(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
     let after = r.render(&r.without(i));
     if a.keep_link {
         println!("{}UNREGISTER\t{p:?}", if a.dry_run { "WOULD_" } else { "" });
-        if !a.dry_run {
+        if a.dry_run {
+            r.preview_bytes(after.as_bytes())?;
+        } else {
             r.save_bytes(after.as_bytes())?;
         }
         return Ok(());
@@ -364,7 +378,9 @@ fn remove(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
         "{}REMOVE+UNREGISTER\t{p:?}",
         if a.dry_run { "WOULD_" } else { "" }
     );
-    if !a.dry_run {
+    if a.dry_run {
+        r.preview_bytes(after.as_bytes())?;
+    } else {
         if old.is_none() {
             r.save_bytes(after.as_bytes())?;
         } else {

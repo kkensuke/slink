@@ -443,3 +443,101 @@ fn filesystem_case_and_unicode_aliases_do_not_duplicate_registrations() {
         assert_eq!(f.entries(), if aliases { 1 } else { 2 });
     }
 }
+
+#[test]
+fn recovery_dry_run_rejects_registry_edits_without_writing() {
+    let f = Fixture::new();
+    f.crash(&["future", "link"], "linked");
+    f.write("links.toml", "# user edit\nversion = 1\n");
+    let pending = fs::read(f.path("links.toml.slink-pending")).unwrap();
+    assert_eq!(
+        f.run(&["--dry-run", "future", "link"]).status.code(),
+        Some(2)
+    );
+    assert_eq!(f.registry(), "# user edit\nversion = 1\n");
+    assert_eq!(f.target("link"), Path::new("future"));
+    assert_eq!(
+        fs::read(f.path("links.toml.slink-pending")).unwrap(),
+        pending
+    );
+}
+
+#[test]
+fn recovery_dry_run_checks_destinations_and_previews_remaining_items() {
+    let f = Fixture::new();
+    f.ok(&["expected", "a"]);
+    f.ok(&["expected", "b"]);
+    f.ok(&["expected", "c"]);
+    for link in ["a", "b", "c"] {
+        fs::remove_file(f.path(link)).unwrap();
+        symlink("old", f.path(link)).unwrap();
+    }
+    f.crash(&["fix", "--replace"], "moved");
+    f.write("a", "preserve me");
+    assert_eq!(
+        f.run(&["fix", "--replace", "--dry-run"]).status.code(),
+        Some(2)
+    );
+    assert_eq!(fs::read_to_string(f.path("a")).unwrap(), "preserve me");
+    fs::remove_file(f.path("a")).unwrap();
+    let registry = f.registry();
+    let pending = fs::read(f.path("links.toml.slink-pending")).unwrap();
+    let output = String::from_utf8(f.ok(&["fix", "--replace", "--dry-run"]).stdout).unwrap();
+    assert_eq!(output.matches("WOULD_RECOVER").count(), 1);
+    assert_eq!(output.matches("WOULD_REPLACE").count(), 2);
+    assert_eq!(f.registry(), registry);
+    assert_eq!(
+        fs::read(f.path("links.toml.slink-pending")).unwrap(),
+        pending
+    );
+    assert!(fs::symlink_metadata(f.path("a")).is_err());
+    assert_eq!(f.target("b"), Path::new("old"));
+    f.ok(&["fix", "--replace"]);
+    for link in ["a", "b", "c"] {
+        assert_eq!(f.target(link), Path::new("expected"));
+    }
+}
+
+#[test]
+fn dry_run_adopt_recognizes_aliases_planned_earlier_in_the_batch() {
+    let f = Fixture::new();
+    fs::create_dir(f.path("dir")).unwrap();
+    symlink("dir", f.path("alias")).unwrap();
+    symlink("future", f.path("dir/link")).unwrap();
+    let output = String::from_utf8(
+        f.ok(&["adopt", "--dry-run", "dir/link", "alias/link"])
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(output.matches("WOULD_REGISTER").count(), 1);
+    assert_eq!(output.matches("UNCHANGED").count(), 1);
+    assert!(!f.path("links.toml").exists());
+    assert!(!f.path("links.toml.slink-lock").exists());
+    f.ok(&["adopt", "dir/link", "alias/link"]);
+    assert_eq!(f.entries(), 1);
+}
+
+#[test]
+fn removal_recovery_dry_run_preserves_the_link_and_previews_the_batch() {
+    for stage in ["prepared", "moved", "committed", "cleaned"] {
+        let f = Fixture::new();
+        f.ok(&["future", "a"]);
+        f.ok(&["future", "b"]);
+        f.crash(&["remove", "a", "b"], stage);
+        let registry = f.registry();
+        let pending = fs::read(f.path("links.toml.slink-pending")).unwrap();
+        let original = fs::read_link(f.path("a")).ok();
+        let output = String::from_utf8(f.ok(&["remove", "--dry-run", "a", "b"]).stdout).unwrap();
+        assert!(output.contains("WOULD_RECOVER"));
+        assert!(output.contains("WOULD_REMOVE+UNREGISTER"));
+        assert_eq!(f.registry(), registry);
+        assert_eq!(
+            fs::read(f.path("links.toml.slink-pending")).unwrap(),
+            pending
+        );
+        assert_eq!(fs::read_link(f.path("a")).ok(), original);
+        assert_eq!(f.target("b"), Path::new("future"));
+        f.ok(&["remove", "a", "b"]);
+        assert_eq!(f.entries(), 0);
+    }
+}

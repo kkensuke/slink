@@ -1,5 +1,6 @@
 use crate::{
     inspect::{snapshot, Snapshot},
+    paths,
     registry::{atomic_write, Entry, Registry},
 };
 use anyhow::{bail, Context, Result};
@@ -45,8 +46,14 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
     f.read_to_end(&mut data)?;
     let p: Pending = serde_json::from_slice(&data)
         .context("invalid pending operation; preserve this file for recovery")?;
-    if p.version != 1 || !p.link.is_absolute() || p.entry.target.is_empty() {
+    paths::validate_target(&p.entry.target)?;
+    if p.version != 1 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
         bail!("invalid pending operation");
+    }
+    match p.op {
+        Operation::Create if p.old.is_none() && p.backup.is_none() => {}
+        Operation::Remove | Operation::Replace if p.old.is_some() && p.backup.is_some() => {}
+        _ => bail!("invalid pending operation state"),
     }
     if let Some(b) = &p.backup {
         let dir = b.parent().context("invalid backup path")?;
@@ -140,11 +147,14 @@ fn sync_parent(p: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
+// One read-only preflight is shared by execution and dry-run recovery.
+fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
+    r.verify()?;
     let current = r.original.as_deref();
     if current != p.before.as_deref().map(str::as_bytes) && current != Some(p.after.as_bytes()) {
         bail!("registry differs from the pending operation; preserve the pending file and resolve the conflict");
     }
+    let mut move_old = false;
     if let (Some(old), Some(backup)) = (&p.old, &p.backup) {
         match snapshot(backup)? {
             Some(s) if &s == old => {}
@@ -156,17 +166,7 @@ pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
                     snapshot(&p.link)?
                 };
                 if original.as_ref() == Some(old) {
-                    move_exclusive(&p.link, backup)?;
-                    sync_parent(&p.link)?;
-                    sync_parent(backup)?;
-                    failpoint("moved");
-                    if !snapshot(backup).is_ok_and(|s| s.as_ref() == Some(old)) {
-                        let _ = move_exclusive(backup, &p.link);
-                        bail!(
-                            "link changed during move; preserve recovery directory {:?}",
-                            backup.parent()
-                        );
-                    }
+                    move_old = true;
                 } else {
                     let already_done = current == Some(p.after.as_bytes())
                         && match p.op {
@@ -181,6 +181,43 @@ pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
                     }
                 }
             }
+        }
+    }
+    if p.op != Operation::Remove && !move_old {
+        match snapshot(&p.link)? {
+            None => {
+                let parent = p.link.parent().context("link parent")?;
+                paths::directory_location(parent)?;
+                if !p.parents && !parent.is_dir() {
+                    bail!("link parent is missing; restore it before resuming");
+                }
+            }
+            Some(s) if s.target == p.entry.target => {}
+            Some(_) => bail!("destination changed; pending operation retained"),
+        }
+    }
+    Ok(move_old)
+}
+
+pub fn preview(r: &mut Registry, p: &Pending) -> Result<()> {
+    resume_plan(r, p)?;
+    r.preview_bytes(p.after.as_bytes())
+}
+
+pub fn finish(r: &mut Registry, p: &Pending) -> Result<()> {
+    if resume_plan(r, p)? {
+        let old = p.old.as_ref().context("missing old link")?;
+        let backup = p.backup.as_ref().context("missing backup")?;
+        move_exclusive(&p.link, backup)?;
+        sync_parent(&p.link)?;
+        sync_parent(backup)?;
+        failpoint("moved");
+        if !snapshot(backup).is_ok_and(|s| s.as_ref() == Some(old)) {
+            let _ = move_exclusive(backup, &p.link);
+            bail!(
+                "link changed during move; preserve recovery directory {:?}",
+                backup.parent()
+            );
         }
     }
     if p.op != Operation::Remove {

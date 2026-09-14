@@ -108,6 +108,8 @@ are duplicated in the registry; the stored target already captures the result.
 `--dry-run` works for create, fix, remove, and adopt, and makes no writes, including
 lock files, recovery records, or parent directories. `--keep-link` only works with
 remove; `--replace` only works with fix. Invalid option combinations are errors.
+Batch previews account for earlier planned registrations/removals. Recovery
+previews check registry edits and destination conflicts before showing a plan.
 
 See [the default-behavior decisions](docs/defaults.md) for the tradeoffs.
 
