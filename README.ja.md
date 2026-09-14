@@ -197,7 +197,7 @@ slink list -o tsv
 slink check -o tsv
 ```
 
-scan は `-R` がなければ直下だけを探索します。再帰探索では通常のサブディレクトリも対象です。ディレクトリへの symlink は表示しますが、中へは入りません。探索開始パスそのものが symlink の場合は、末尾に `/` を付けた場合も拒否します。重複する開始パスや親子の開始パスを指定しても、同じリンクを重複表示しません。
+scan は `-R` がなければ直下だけを探索します。ディレクトリを省略した場合は作業ディレクトリを使うため、`slink scan` は `slink scan .` と同じで、`slink scan -R` は `slink scan -R .` と同じです。再帰探索では通常のサブディレクトリも対象です。ディレクトリへの symlink は表示しますが、中へは入りません。探索開始パスそのものが symlink の場合は、末尾に `/` を付けた場合も拒否します。重複する開始パスや親子の開始パスを指定しても、同じリンクを重複表示しません。
 
 管理状態は各リンクの配置先で決まります。同じ target を指していても、配置先が異なれば別々の登録です。ディレクトリへのリンクを登録しても、そのディレクトリ内のリンクは自動登録されません。`check` は登録されたリンクを検査し、`scan` は探索範囲内にある未管理のリンクも発見します。
 
@@ -236,10 +236,10 @@ TSV はヘッダー付きの1リンク1行です。
 | コマンド | 列の順序 |
 | --- | --- |
 | list | `LINK`, `TARGET` |
-| check | `LINK_STATE`, `TARGET_STATE`, `LINK`, `TARGET`, `ACTUAL_TARGET_STATE`, `ACTUAL_TARGET` |
-| scan | `MANAGEMENT`, `TARGET_STATE`, `LINK`, `TARGET`, `LINK_STATE`, `EXPECTED_TARGET_STATE`, `EXPECTED_TARGET` |
+| check | `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
+| scan | `MANAGEMENT`, `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
 
-パス・target のセルは JSON 文字列、値がない任意セルは空欄とし、診断の理由は stderr に出します。list の両列は、パス変換を行わず、保存された文字列をそのまま出力します。check の `TARGET` は登録済みの絶対 target、`ACTUAL_TARGET` は実物から読んだ文字列です。scan の `TARGET` は実物の文字列、`EXPECTED_TARGET` は登録済みの絶対 target です。そのため、adopt した一致するリンクでも、これらの列の文字列が異なる場合があります。
+パス・target のセルは JSON 文字列、値がない任意セルは空欄とし、診断の理由は stderr に出します。list の両列は、パス変換を行わず、保存された文字列をそのまま出力します。check と管理済み scan 行では、`TARGET` は登録済みの絶対 target、`TARGET_STATE` はその到達状態、`ACTUAL_TARGET` は実物の symlink から読んだ文字列、`ACTUAL_TARGET_STATE` はその参照先の到達状態です。そのため adopt した一致するリンクでも、`TARGET` と `ACTUAL_TARGET` の文字列が異なる場合があります。未管理の scan 行には登録値がないため、`LINK_STATE`・`TARGET`・`TARGET_STATE` は空欄で、`ACTUAL_TARGET` 側に発見した symlink の情報を出します。出力するファイルシステム上のパスでは余分な `.` を除去するため、`/Users/you/./links/item` は `/Users/you/links/item` と表示します。
 
 ## 保護と復旧
 
