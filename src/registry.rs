@@ -31,14 +31,7 @@ impl Registry {
         let requested = if let Some(f) = file {
             paths::absolute(f)?
         } else {
-            let root = match std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .filter(|x| x.is_absolute())
-            {
-                Some(root) => root,
-                None => paths::home()?.join(".config"),
-            };
-            root.join("slink/links.toml")
+            paths::default_registry_path()?
         };
         let path = match fs::symlink_metadata(&requested) {
             Ok(_) => {
