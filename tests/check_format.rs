@@ -13,11 +13,14 @@ fn check_tsv_uses_fixed_columns_and_one_row_per_link() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.starts_with(
-        "LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET\n"
+        "LINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE\n"
     ));
-    assert!(stdout.contains("MATCH\tREACHABLE\t"));
     assert_eq!(stdout.lines().count(), 2);
     assert!(stdout.lines().all(|line| line.split('\t').count() == 6));
+    let row: Vec<_> = stdout.lines().nth(1).unwrap().split('\t').collect();
+    assert_eq!(row[1], "MATCH");
+    assert_eq!(row[3], "REACHABLE");
+    assert_eq!(row[5], "REACHABLE");
 }
 
 #[test]
@@ -45,19 +48,19 @@ fn check_tsv_keeps_mismatch_details_on_the_same_record() {
         .collect();
     assert_eq!(rows.len(), 3);
     assert!(rows.iter().all(|row| row.len() == 6));
-    assert_eq!(rows[0][0], "MISMATCH");
-    assert_eq!(rows[0][1], "REACHABLE");
-    assert_eq!(rows[0][4], "REACHABLE");
+    assert_eq!(rows[0][1], "MISMATCH");
+    assert_eq!(rows[0][3], "REACHABLE");
+    assert_eq!(rows[0][5], "REACHABLE");
     assert_eq!(
-        serde_json::from_str::<String>(rows[0][3]).unwrap(),
+        serde_json::from_str::<String>(rows[0][2]).unwrap(),
         f.path("expected").to_str().unwrap()
     );
     assert_eq!(
-        serde_json::from_str::<String>(rows[0][5]).unwrap(),
+        serde_json::from_str::<String>(rows[0][4]).unwrap(),
         "actual"
     );
-    assert_eq!(rows[1][0], "MISSING");
-    assert_eq!(rows[2][0], "CONFLICT");
+    assert_eq!(rows[1][1], "MISSING");
+    assert_eq!(rows[2][1], "CONFLICT");
     for row in &rows[1..] {
         assert_eq!(&row[4..], &["", ""]);
     }
