@@ -93,8 +93,14 @@ fn ordinary_directory_at_managed_link_is_never_replaced() {
     fs::remove_file(f.root.join("link")).unwrap();
     fs::create_dir(f.root.join("link")).unwrap();
 
-    assert_eq!(f.command(&["fix", "--replace"]).status().unwrap().code(), Some(1));
-    assert_eq!(f.command(&["remove", "link"]).status().unwrap().code(), Some(1));
+    assert_eq!(
+        f.command(&["fix", "--replace"]).status().unwrap().code(),
+        Some(1)
+    );
+    assert_eq!(
+        f.command(&["remove", "link"]).status().unwrap().code(),
+        Some(1)
+    );
     assert!(f.root.join("link").is_dir());
 }
 
@@ -132,7 +138,10 @@ fn paths_with_spaces_and_quotes_round_trip_through_registry() {
 
     assert_eq!(f.command(&[target, link]).status().unwrap().code(), Some(0));
     assert_eq!(fs::read_to_string(f.root.join(link)).unwrap(), "ok");
-    assert_eq!(f.command(&["check", link]).status().unwrap().code(), Some(0));
+    assert_eq!(
+        f.command(&["check", link]).status().unwrap().code(),
+        Some(0)
+    );
 }
 
 #[test]
