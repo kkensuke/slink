@@ -5,23 +5,7 @@ mod paths;
 mod registry;
 mod transaction;
 
-use anyhow::{bail, Context, Result};
-use std::path::PathBuf;
-
-fn default_registry_path() -> Result<PathBuf> {
-    let root = match std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-    {
-        Some(root) => root,
-        None => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .context("HOME must be an absolute directory")?
-            .join(".config"),
-    };
-    Ok(root.join("slink/links.toml"))
-}
+use anyhow::{bail, Result};
 
 fn run() -> Result<u8> {
     let args = std::env::args_os()
@@ -36,7 +20,7 @@ fn run() -> Result<u8> {
         if args.len() != 1 {
             bail!("config takes no operands or options");
         }
-        println!("{}", paths::text(&default_registry_path()?)?);
+        println!("{}", paths::text(&paths::default_registry_path()?)?);
         return Ok(0);
     }
 
