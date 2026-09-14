@@ -1,8 +1,9 @@
 use crate::{
     cli::OutputFormat,
-    inspect::{self, Diagnosis, TargetHealth},
+    inspect::{self, Diagnosis, LinkState, TargetHealth},
     paths,
     registry::Registry,
+    transaction::Pending,
 };
 use anyhow::Result;
 use std::{
@@ -17,7 +18,7 @@ pub fn list(r: &Registry, format: OutputFormat) -> Result<u8> {
     if format == OutputFormat::Tsv {
         println!("LINK\tTARGET");
         for entry in &r.entries {
-            println!("{:?}\t{:?}", entry.link, entry.target);
+            println!("{}\t{}", quoted(&entry.link), quoted(&entry.target));
         }
         return Ok(0);
     }
@@ -26,28 +27,140 @@ pub fn list(r: &Registry, format: OutputFormat) -> Result<u8> {
     println!("{count} {}", plural(count, "link", "links"));
     for entry in &r.entries {
         println!();
-        println!("{}", inspect::display_link(&r.link(entry)?));
-        println!("  → {}", inspect::display_text(&entry.target));
+        println!("{}", display_link(&r.link(entry)?));
+        println!("  → {}", quoted(&entry.target));
     }
     Ok(0)
+}
+
+pub fn check(
+    checked: &[(PathBuf, String, Diagnosis)],
+    pending: Option<&Pending>,
+    format: OutputFormat,
+) {
+    if format == OutputFormat::Tsv {
+        if let Some(p) = pending {
+            eprintln!(
+                "PENDING: {:?} {:?} -> {:?}; repeat the original operation to recover",
+                p.op, p.link, p.entry.target
+            );
+        }
+        println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET");
+        for (link, target, diagnosis) in checked {
+            let actual = diagnosis.actual(target);
+            println!(
+                "{}\t{}\t{}\t{}\t{}\t{}",
+                diagnosis.link.code(),
+                diagnosis.expected_health.code(),
+                quoted(&link.to_string_lossy()),
+                quoted(target),
+                actual.map_or("", |(_, health)| health.code()),
+                actual.map_or_else(String::new, |(target, _)| quoted(target)),
+            );
+            print_diagnostic_reasons(link, diagnosis);
+        }
+        return;
+    }
+
+    let problems: Vec<_> = checked.iter().filter(|(_, _, d)| !d.is_healthy()).collect();
+    let count = problems.len() + usize::from(pending.is_some());
+    if count == 0 {
+        println!(
+            "OK {} {}",
+            checked.len(),
+            plural(checked.len(), "link", "links")
+        );
+        return;
+    }
+    println!(
+        "{count} {} found ({} {} checked)",
+        plural(count, "problem", "problems"),
+        checked.len(),
+        plural(checked.len(), "link", "links")
+    );
+    if let Some(p) = pending {
+        println!();
+        println!("! incomplete operation");
+        println!("  operation: {}", format!("{:?}", p.op).to_lowercase());
+        println!("  link: {}", display_link(&p.link));
+        println!("  target: {}", quoted(&p.entry.target));
+        println!("  repeat the original command with the same target and options to recover");
+    }
+    for (link, target, diagnosis) in problems {
+        println!();
+        for line in render_diagnosis(diagnosis, link, target) {
+            println!("{line}");
+        }
+    }
+}
+
+fn print_diagnostic_reasons(link: &Path, diagnosis: &Diagnosis) {
+    let link_reason = match &diagnosis.link {
+        LinkState::Unknown(reason) => Some(reason.clone()),
+        LinkState::Conflict(kind) => Some(format!("expected a symlink, found {kind}")),
+        _ => None,
+    };
+    if let Some(reason) = link_reason {
+        eprintln!(
+            "ERROR\t{}\t{}",
+            quoted(&link.to_string_lossy()),
+            quoted(&reason)
+        );
+    }
+    for (label, health) in [
+        ("expected target", Some(&diagnosis.expected_health)),
+        ("actual target", diagnosis.actual_health.as_ref()),
+    ] {
+        if let Some(reason) = health.and_then(TargetHealth::reason) {
+            eprintln!(
+                "ERROR\t{}\t{label}\t{}",
+                quoted(&link.to_string_lossy()),
+                quoted(reason)
+            );
+        }
+    }
 }
 
 struct ScanEntry {
     link: PathBuf,
     target: String,
-    actual_health: TargetHealth,
-    managed: Option<(String, Diagnosis)>,
+    health: ScanHealth,
+}
+
+enum ScanHealth {
+    Managed {
+        expected: String,
+        diagnosis: Diagnosis,
+    },
+    Unmanaged(TargetHealth),
 }
 
 impl ScanEntry {
     fn is_managed(&self) -> bool {
-        self.managed.is_some()
+        matches!(self.health, ScanHealth::Managed { .. })
     }
 
     fn has_issue(&self) -> bool {
-        match &self.managed {
-            Some((_, diagnosis)) => !diagnosis.is_healthy(),
-            None => !self.actual_health.is_reachable(),
+        match &self.health {
+            ScanHealth::Managed { diagnosis, .. } => !diagnosis.is_healthy(),
+            ScanHealth::Unmanaged(health) => !health.is_reachable(),
+        }
+    }
+
+    fn actual_health(&self) -> &TargetHealth {
+        match &self.health {
+            ScanHealth::Managed {
+                expected,
+                diagnosis,
+            } => diagnosis.actual(expected).expect("scanned symlink").1,
+            ScanHealth::Unmanaged(health) => health,
+        }
+    }
+
+    fn inspection_failed(&self) -> bool {
+        match &self.health {
+            ScanHealth::Managed { diagnosis, .. } => diagnosis.inspection_failed(),
+            ScanHealth::Unmanaged(health) => health.is_unknown(),
         }
     }
 }
@@ -59,12 +172,13 @@ struct ScanError {
 
 pub fn scan(r: &Registry, roots: &[String], format: OutputFormat) -> Result<u8> {
     let (entries, errors) = collect_scan(r, roots)?;
+    let failed = !errors.is_empty() || entries.iter().any(ScanEntry::inspection_failed);
     if format == OutputFormat::Tsv {
         print_scan_tsv(&entries, &errors);
     } else {
         print_scan_human(entries, &errors);
     }
-    Ok(u8::from(!errors.is_empty()))
+    Ok(u8::from(failed))
 }
 
 fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<ScanError>)> {
@@ -73,7 +187,17 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
     let mut visited = HashSet::new();
     let mut stack: Vec<PathBuf> = roots
         .iter()
-        .map(|root| paths::absolute(Path::new(root)))
+        .map(|root| {
+            // A trailing slash makes lstat follow the final symlink. Strip only
+            // separators; keep '..' and intermediate symlinks in their OS order.
+            let trimmed = root.trim_end_matches('/');
+            let root = if !root.is_empty() && trimmed.is_empty() {
+                "/"
+            } else {
+                trimmed
+            };
+            paths::absolute(Path::new(root))
+        })
         .collect::<Result<_>>()?;
 
     while let Some(dir) = stack.pop() {
@@ -167,15 +291,19 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
                     continue;
                 }
             };
-            let actual_health =
-                inspect::target_health(&paths::target_path(&path, &snapshot.target));
-            let managed = match r.find(&path) {
+            let target = snapshot.target.clone();
+            let health = match r.find(&path) {
                 Ok(Some(index)) => {
                     let expected = r.entries[index].target.clone();
-                    let diagnosis = inspect::diagnose(&path, &expected);
-                    Some((expected, diagnosis))
+                    let diagnosis = inspect::diagnose_snapshot(&path, &expected, snapshot);
+                    ScanHealth::Managed {
+                        expected,
+                        diagnosis,
+                    }
                 }
-                Ok(None) => None,
+                Ok(None) => ScanHealth::Unmanaged(inspect::target_health(&paths::target_path(
+                    &path, &target,
+                ))),
                 Err(error) => {
                     errors.push(ScanError {
                         path,
@@ -186,9 +314,8 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
             };
             entries.push(ScanEntry {
                 link: path,
-                target: snapshot.target,
-                actual_health,
-                managed,
+                target,
+                health,
             });
         }
     }
@@ -197,22 +324,51 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
 }
 
 fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
-    println!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET");
+    println!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET\tLINK_STATE\tEXPECTED_TARGET_STATE\tEXPECTED_TARGET");
     for entry in entries {
+        let (state, expected_health, expected_target) = match &entry.health {
+            ScanHealth::Managed {
+                expected,
+                diagnosis,
+            } => (
+                diagnosis.link.code(),
+                diagnosis.expected_health.code(),
+                quoted(expected),
+            ),
+            ScanHealth::Unmanaged(_) => ("", "", String::new()),
+        };
         println!(
-            "{}\t{}\t{:?}\t{:?}",
+            "{}\t{}\t{}\t{}\t{state}\t{expected_health}\t{expected_target}",
             if entry.is_managed() {
                 "MANAGED"
             } else {
                 "UNMANAGED"
             },
-            entry.actual_health.code(),
-            entry.link,
-            entry.target
+            entry.actual_health().code(),
+            quoted(&entry.link.to_string_lossy()),
+            quoted(&entry.target)
         );
+        match &entry.health {
+            ScanHealth::Managed { diagnosis, .. } => {
+                print_diagnostic_reasons(&entry.link, diagnosis)
+            }
+            ScanHealth::Unmanaged(health) => {
+                if let Some(reason) = health.reason() {
+                    eprintln!(
+                        "ERROR\t{}\t{}",
+                        quoted(&entry.link.to_string_lossy()),
+                        quoted(reason)
+                    );
+                }
+            }
+        }
     }
     for error in errors {
-        eprintln!("ERROR\t{:?}\t{}", error.path, error.reason);
+        eprintln!(
+            "ERROR\t{}\t{}",
+            quoted(&error.path.to_string_lossy()),
+            quoted(&error.reason)
+        );
     }
 }
 
@@ -264,9 +420,9 @@ fn print_scan_human(mut entries: Vec<ScanEntry>, errors: &[ScanError]) {
             println!(
                 "  {} {} — cannot scan",
                 problem_marker(),
-                inspect::display_link(&error.path)
+                display_link(&error.path)
             );
-            println!("    reason: {}", inspect::display_text(&error.reason));
+            println!("    reason: {}", display_text(&error.reason));
         }
     }
 
@@ -283,13 +439,16 @@ fn print_scan_section(entries: &[ScanEntry]) {
         if index > 0 {
             println!();
         }
-        match &entry.managed {
-            Some((_, diagnosis)) if diagnosis.is_healthy() => {
-                println!("  {} {}", ok_marker(), inspect::display_link(&entry.link));
-                println!("    → {}", inspect::display_text(&entry.target));
+        match &entry.health {
+            ScanHealth::Managed { diagnosis, .. } if diagnosis.is_healthy() => {
+                println!("  {} {}", ok_marker(), display_link(&entry.link));
+                println!("    → {}", quoted(&entry.target));
             }
-            Some((expected, diagnosis)) => {
-                let lines = diagnosis.render(&entry.link, expected);
+            ScanHealth::Managed {
+                expected,
+                diagnosis,
+            } => {
+                let lines = render_diagnosis(diagnosis, &entry.link, expected);
                 for (line_index, line) in lines.iter().enumerate() {
                     if line_index == 0 {
                         if let Some(rest) = line.strip_prefix("! ") {
@@ -302,26 +461,26 @@ fn print_scan_section(entries: &[ScanEntry]) {
                     }
                 }
             }
-            None => print_unmanaged(entry),
+            ScanHealth::Unmanaged(_) => print_unmanaged(entry),
         }
     }
 }
 
 fn print_unmanaged(entry: &ScanEntry) {
-    match entry.actual_health.problem_label() {
+    match entry.actual_health().problem_label() {
         None => {
-            println!("  {} {}", ok_marker(), inspect::display_link(&entry.link));
-            println!("    → {}", inspect::display_text(&entry.target));
+            println!("  {} {}", ok_marker(), display_link(&entry.link));
+            println!("    → {}", quoted(&entry.target));
         }
         Some(problem) => {
             println!(
                 "  {} {} — {problem}",
                 problem_marker(),
-                inspect::display_link(&entry.link)
+                display_link(&entry.link)
             );
-            println!("    → {}", inspect::display_text(&entry.target));
-            if let Some(reason) = entry.actual_health.reason() {
-                println!("    reason: {}", inspect::display_text(reason));
+            println!("    → {}", quoted(&entry.target));
+            if let Some(reason) = entry.actual_health().reason() {
+                println!("    reason: {}", display_text(reason));
             }
         }
     }
@@ -367,4 +526,138 @@ fn problem_marker() -> String {
 
 fn heading(text: &str) -> String {
     paint("1", text)
+}
+
+impl TargetHealth {
+    pub fn problem_label(&self) -> Option<&'static str> {
+        match self {
+            Self::Reachable => None,
+            Self::Missing => Some("target is missing"),
+            Self::ResolutionError(_) => Some("target cannot be resolved"),
+            Self::Unknown(_) => Some("cannot inspect target"),
+        }
+    }
+
+    fn annotation(&self) -> &'static str {
+        match self {
+            Self::Reachable => "",
+            Self::Missing => " (missing)",
+            Self::ResolutionError(_) => " (cannot be resolved)",
+            Self::Unknown(_) => " (cannot be inspected)",
+        }
+    }
+}
+
+fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<String> {
+    let link = display_link(p);
+    let mut lines = Vec::new();
+    match &diagnosis.link {
+        LinkState::Match => match &diagnosis.expected_health {
+            TargetHealth::Reachable => {}
+            TargetHealth::Missing => {
+                lines.push(format!("! {link} — target is missing"));
+                lines.push(format!("  target: {}", quoted(expected)));
+            }
+            TargetHealth::ResolutionError(reason) => {
+                lines.push(format!("! {link} — target cannot be resolved"));
+                lines.push(format!("  target: {}", quoted(expected)));
+                lines.push(format!("  reason: {}", display_text(reason)));
+            }
+            TargetHealth::Unknown(reason) => {
+                lines.push(format!("! {link} — cannot inspect target"));
+                lines.push(format!("  target: {}", quoted(expected)));
+                lines.push(format!("  reason: {}", display_text(reason)));
+            }
+        },
+        LinkState::Missing => {
+            lines.push(format!("! {link} — link is missing"));
+            push_target(&mut lines, "target", expected, &diagnosis.expected_health);
+        }
+        LinkState::Mismatch(actual) => {
+            lines.push(format!("! {link} — target differs"));
+            push_target(&mut lines, "expected", expected, &diagnosis.expected_health);
+            push_target(
+                &mut lines,
+                "actual",
+                actual,
+                diagnosis
+                    .actual_health
+                    .as_ref()
+                    .expect("mismatch has actual target health"),
+            );
+        }
+        LinkState::Conflict(kind) => {
+            lines.push(format!("! {link} — expected a symlink, found {kind}"));
+            push_target(&mut lines, "target", expected, &diagnosis.expected_health);
+        }
+        LinkState::Unknown(reason) => {
+            lines.push(format!("! {link} — cannot inspect link"));
+            lines.push(format!("  reason: {}", display_text(reason)));
+            push_target(&mut lines, "target", expected, &diagnosis.expected_health);
+        }
+    }
+    lines
+}
+
+fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &TargetHealth) {
+    let separator = if label == "actual" { ":   " } else { ": " };
+    lines.push(format!(
+        "  {label}{separator}{}{}",
+        quoted(target),
+        health.annotation()
+    ));
+    if let Some(reason) = health.reason() {
+        lines.push(format!("  {label} reason: {}", display_text(reason)));
+    }
+}
+
+pub fn display_link(p: &Path) -> String {
+    let compact = paths::home().ok().and_then(|home| {
+        if p == home {
+            Some("~".to_owned())
+        } else {
+            p.strip_prefix(home)
+                .ok()
+                .and_then(|rest| paths::text(rest).ok())
+                .map(|rest| format!("~/{rest}"))
+        }
+    });
+    display_text(
+        compact
+            .as_deref()
+            .unwrap_or_else(|| p.to_str().unwrap_or("<non-UTF-8>")),
+    )
+}
+
+pub fn display_text(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if c.is_control() || c == '\\' {
+            out.extend(c.escape_default());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn quoted(text: &str) -> String {
+    let json = serde_json::to_string(text).expect("string serialization");
+    let mut escaped = String::new();
+    for c in json.chars() {
+        // JSON permits DEL and C1 controls; terminals should never receive them.
+        if c.is_control() {
+            escaped.push_str(&format!("\\u{:04x}", c as u32));
+        } else {
+            escaped.push(c);
+        }
+    }
+    escaped
+}
+
+pub fn warn_target(p: &Path, target: &str) {
+    let health = inspect::target_health(&paths::target_path(p, target));
+    if !health.is_reachable() {
+        eprintln!("warning: target {}: {p:?} -> {target:?}", health.code());
+    }
 }
