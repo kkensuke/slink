@@ -1,6 +1,9 @@
 use super::{display_link, display_text, ok_marker, paint, plural, problem_marker, quoted};
 use crate::{cli::Command, inspect, paths};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MutationAction {
@@ -55,6 +58,7 @@ pub struct MutationOutput {
     failed: usize,
     target_issues: usize,
     printed: bool,
+    deferred: Vec<MutationResult>,
 }
 
 impl MutationOutput {
@@ -67,34 +71,34 @@ impl MutationOutput {
             failed: 0,
             target_issues: 0,
             printed: false,
+            deferred: Vec::new(),
         }
     }
 
     // Results arrive only after execution (or preview) succeeds. Target health
     // is advisory and does not turn a completed mutation into a failed one.
+    // Fix output is deferred so health describes the final state, not a
+    // transient state between dependent link mutations.
     pub fn record(&mut self, result: MutationResult) {
-        let unchanged = result.action == MutationAction::Unchanged;
-        if unchanged {
+        if result.action == MutationAction::Unchanged {
             self.unchanged += 1;
         } else {
             self.changed += 1;
         }
-        let health = if matches!(
-            result.action,
-            MutationAction::Remove | MutationAction::Unregister
-        ) {
-            None
-        } else {
-            Some(inspect::target_health(&paths::target_path(
-                &result.link,
-                &result.target,
-            )))
-        };
+        if self.fixing {
+            self.deferred.push(result);
+            return;
+        }
+        let health = observed_health(&result);
+        self.print_result(&result, health);
+    }
+
+    fn print_result(&mut self, result: &MutationResult, health: Option<inspect::TargetHealth>) {
         let problem = health.as_ref().and_then(|h| h.problem_label());
         if problem.is_some() {
             self.target_issues += 1;
         }
-        if self.fixing && unchanged && problem.is_none() {
+        if self.fixing && result.action == MutationAction::Unchanged && problem.is_none() {
             return;
         }
         if self.printed {
@@ -134,7 +138,18 @@ impl MutationOutput {
         eprintln!("  reason: {}\n", display_text(&format!("{error:#}")));
     }
 
-    pub fn finish(&self) -> u8 {
+    pub fn finish(&mut self) -> u8 {
+        if self.fixing {
+            let results = std::mem::take(&mut self.deferred);
+            for result in &results {
+                let health = if self.dry_run {
+                    projected_health_for(result, &results)
+                } else {
+                    observed_health(result)
+                };
+                self.print_result(result, health);
+            }
+        }
         if self.fixing || self.changed + self.unchanged + self.failed > 1 {
             if self.printed {
                 outln!();
@@ -169,4 +184,57 @@ impl MutationOutput {
         }
         u8::from(self.failed > 0)
     }
+}
+
+fn observed_health(result: &MutationResult) -> Option<inspect::TargetHealth> {
+    if matches!(
+        result.action,
+        MutationAction::Remove | MutationAction::Unregister
+    ) {
+        None
+    } else {
+        Some(inspect::target_health(&paths::target_path(
+            &result.link,
+            &result.target,
+        )))
+    }
+}
+
+fn projected_health_for(
+    result: &MutationResult,
+    results: &[MutationResult],
+) -> Option<inspect::TargetHealth> {
+    if matches!(
+        result.action,
+        MutationAction::Remove | MutationAction::Unregister
+    ) {
+        return None;
+    }
+    let target = paths::target_path(&result.link, &result.target);
+    Some(projected_health(&target, results, &mut HashSet::new()))
+}
+
+fn projected_health(
+    path: &Path,
+    results: &[MutationResult],
+    visiting: &mut HashSet<String>,
+) -> inspect::TargetHealth {
+    let key = paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned());
+    let planned = results.iter().find(|result| {
+        !matches!(
+            result.action,
+            MutationAction::Remove | MutationAction::Unregister
+        ) && paths::key(&result.link).unwrap_or_else(|_| result.link.to_string_lossy().into_owned())
+            == key
+    });
+    let Some(result) = planned else {
+        return inspect::target_health(path);
+    };
+    if !visiting.insert(key.clone()) {
+        return inspect::TargetHealth::ResolutionError("symlink loop in planned fix".into());
+    }
+    let target = paths::target_path(&result.link, &result.target);
+    let health = projected_health(&target, results, visiting);
+    visiting.remove(&key);
+    health
 }
