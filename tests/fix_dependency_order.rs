@@ -96,3 +96,88 @@ fn dry_run_reports_a_shared_missing_parent_once() {
     assert!(stdout.contains("(would create)"));
     assert!(!f.path("shared").exists());
 }
+
+#[test]
+fn fix_orders_a_managed_path_dependency_before_its_dependent() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("source-dir")).unwrap();
+    f.write("source-dir/child", "ok");
+    fs::create_dir_all(f.path("managed")).unwrap();
+    f.write_entries(&[
+        ("top", "managed/base/child"),
+        ("managed/base", "source-dir"),
+    ]);
+
+    let output = f.ok(&["fix"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let base = stdout.find("managed/base").unwrap();
+    let top = stdout.find("top").unwrap();
+
+    assert!(base < top, "stdout={stdout:?}");
+}
+
+#[test]
+fn dry_run_preserves_parent_traversal_after_a_projected_symlink() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("source-dir/subdir")).unwrap();
+    f.write("source-dir/sibling", "ok");
+    fs::create_dir_all(f.path("managed")).unwrap();
+    f.write_entries(&[
+        ("managed/base", "source-dir/subdir"),
+        ("top", "managed/base/../sibling"),
+    ]);
+
+    let output = f.ok(&["fix", "-n"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(!stdout.contains("target is missing"), "stdout={stdout:?}");
+}
+
+#[test]
+fn fix_orders_every_managed_link_traversed_by_one_target() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("subdir")).unwrap();
+    fs::create_dir_all(f.path("source-z")).unwrap();
+    f.write("source-z/child", "ok");
+    f.write_entries(&[
+        ("m-top", "a-link/../z-link/child"),
+        ("z-link", "source-z"),
+        ("a-link", "subdir"),
+    ]);
+
+    let output = f.ok(&["fix"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let a = stdout.find("a-link").unwrap();
+    let z = stdout.find("z-link").unwrap();
+    let top = stdout.find("m-top").unwrap();
+
+    assert!(a < top, "stdout={stdout:?}");
+    assert!(z < top, "stdout={stdout:?}");
+}
+
+#[test]
+fn fix_dependency_order_uses_the_planned_replacement_target() {
+    use std::os::unix::fs::symlink;
+
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("old/place")).unwrap();
+    fs::create_dir_all(f.path("new/place")).unwrap();
+    fs::create_dir_all(f.path("source-z")).unwrap();
+    f.write("source-z/child", "ok");
+    symlink(f.path("old/place"), f.path("a-link")).unwrap();
+    f.write_entries(&[
+        ("m-top", "a-link/../z-link/child"),
+        ("new/z-link", "source-z"),
+        ("a-link", "new/place"),
+    ]);
+
+    let output = f.ok(&["fix", "-f"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let a = stdout.find("a-link").unwrap();
+    let z = stdout.find("new/z-link").unwrap();
+    let top = stdout.find("m-top").unwrap();
+
+    assert!(a < top, "stdout={stdout:?}");
+    assert!(z < top, "stdout={stdout:?}");
+    assert_eq!(f.target("a-link"), f.path("new/place"));
+}

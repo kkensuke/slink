@@ -315,6 +315,43 @@ fn stable_path_key(path: &Path) -> String {
     paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
 }
 
+fn planned_link_in_path(path: &Path, indexes: &HashMap<String, usize>) -> Option<(usize, PathBuf)> {
+    let mut ancestors = path.ancestors().collect::<Vec<_>>();
+    ancestors.reverse();
+    ancestors.into_iter().find_map(|ancestor| {
+        indexes
+            .get(&stable_path_key(ancestor))
+            .copied()
+            .map(|index| (index, ancestor.to_path_buf()))
+    })
+}
+
+fn projected_fix_dependencies(
+    r: &Registry,
+    links: &[PathBuf],
+    indexes: &HashMap<String, usize>,
+    target: PathBuf,
+) -> Result<Vec<usize>> {
+    let mut current = paths::normalize(&target);
+    let mut dependencies = Vec::new();
+    let mut seen = HashSet::new();
+
+    while let Some((dependency, prefix)) = planned_link_in_path(&current, indexes) {
+        if !seen.insert(dependency) {
+            break;
+        }
+        dependencies.push(dependency);
+        let link = &links[dependency];
+        let entry = &r.entries[r.find(link)?.context("not registered")?];
+        let suffix = current
+            .strip_prefix(&prefix)
+            .expect("planned link is a path prefix");
+        current = paths::normalize(&paths::target_path(link, &entry.target).join(suffix));
+    }
+
+    Ok(dependencies)
+}
+
 fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     let mut seen = HashSet::new();
     links.retain(|link| seen.insert(stable_path_key(link)));
@@ -325,19 +362,14 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
         .enumerate()
         .map(|(index, link)| (stable_path_key(link), index))
         .collect::<HashMap<_, _>>();
-    let mut dependencies = vec![None; links.len()];
+    let mut dependencies = vec![Vec::new(); links.len()];
     for (index, link) in links.iter().enumerate() {
         let entry = &r.entries[r.find(link)?.context("not registered")?];
         let target = paths::target_path(link, &entry.target);
-        dependencies[index] = indexes.get(&stable_path_key(&target)).copied();
+        dependencies[index] = projected_fix_dependencies(r, &links, &indexes, target)?;
     }
 
-    fn visit(
-        index: usize,
-        dependencies: &[Option<usize>],
-        state: &mut [u8],
-        order: &mut Vec<usize>,
-    ) {
+    fn visit(index: usize, dependencies: &[Vec<usize>], state: &mut [u8], order: &mut Vec<usize>) {
         if state[index] == 2 {
             return;
         }
@@ -347,7 +379,7 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
             return;
         }
         state[index] = 1;
-        if let Some(dependency) = dependencies[index] {
+        for &dependency in &dependencies[index] {
             visit(dependency, dependencies, state, order);
         }
         state[index] = 2;
@@ -428,7 +460,10 @@ fn mutate_many(
             Err(error) => report.failure(&link, &error),
         }
         if !args.dry_run && transaction::load(r)?.is_some() {
-            eprintln!("! incomplete operation\n  remaining links were not processed; repeat the operation for the failed link to recover");
+            eprintln!(
+                "! incomplete operation\
+  remaining links were not processed; repeat the operation for the failed link to recover"
+            );
             break;
         }
     }
