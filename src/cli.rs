@@ -7,6 +7,7 @@ pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPT
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Create,
+    Config,
     List,
     Check,
     Fix,
@@ -131,6 +132,7 @@ impl Args {
             }
             if first && !literal {
                 let cmd = match s.as_str() {
+                    "config" => Some(Command::Config),
                     "list" => Some(Command::List),
                     "check" => Some(Command::Check),
                     "fix" => Some(Command::Fix),
@@ -153,6 +155,9 @@ impl Args {
             return Ok(a);
         }
         match a.command {
+            Command::Config if !a.operands.is_empty() || a.file.is_some() => {
+                bail!("config takes no operands or options")
+            }
             Command::Create if a.operands.len() != 2 => bail!("creation needs <target> <link>"),
             Command::List if !a.operands.is_empty() => bail!("list takes no operands"),
             Command::Remove | Command::Adopt | Command::Scan if a.operands.is_empty() => {

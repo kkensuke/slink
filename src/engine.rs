@@ -8,6 +8,10 @@ use anyhow::{bail, Context, Result};
 use std::{collections::HashSet, fs, path::Path};
 
 pub fn run(args: Args) -> Result<u8> {
+    if args.command == Command::Config {
+        println!("{}", paths::text(&paths::default_registry_path()?)?);
+        return Ok(0);
+    }
     if args.command == Command::Help {
         print!("{HELP}");
         return Ok(0);

@@ -6,7 +6,7 @@ mod paths;
 mod registry;
 mod transaction;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 fn run() -> Result<u8> {
     let args = std::env::args_os()
@@ -16,14 +16,6 @@ fn run() -> Result<u8> {
                 .map_err(|_| anyhow::anyhow!("arguments must be valid UTF-8"))
         })
         .collect::<Result<Vec<_>>>()?;
-
-    if args.first().is_some_and(|arg| arg == "config") {
-        if args.len() != 1 {
-            bail!("config takes no operands or options");
-        }
-        println!("{}", paths::text(&paths::default_registry_path()?)?);
-        return Ok(0);
-    }
 
     engine::run(cli::Args::parse(args)?)
 }
