@@ -1,5 +1,5 @@
 use crate::{
-    cli::{Args, Command, HELP},
+    cli::{Args, CheckFormat, Command, HELP},
     inspect, paths,
     registry::{Entry, Registry},
     transaction::{self, Operation},
@@ -35,18 +35,61 @@ pub fn run(args: Args) -> Result<u8> {
     }
     let pending = transaction::load(&r)?;
     if args.command == Command::Check {
-        let mut failed = pending.is_some();
-        if let Some(p) = &pending {
-            eprintln!(
-                "PENDING: {:?} {:?} -> {:?}; repeat the operation for this link with the original options to recover",
-                p.op, p.link, p.entry.target
+        if args.check_format == CheckFormat::Tsv {
+            let mut failed = pending.is_some();
+            if let Some(p) = &pending {
+                eprintln!(
+                    "PENDING: {:?} {:?} -> {:?}; repeat the operation for this link with the original options to recover",
+                    p.op, p.link, p.entry.target
+                );
+            }
+            println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET");
+            for e in selected(&r, &args.operands)? {
+                failed |= !inspect::report_tsv(&r.link(&e)?, &e.target);
+            }
+            return Ok(u8::from(failed));
+        }
+
+        let entries = selected(&r, &args.operands)?;
+        let checked = entries.len();
+        let mut problems = Vec::new();
+        for e in entries {
+            let link = r.link(&e)?;
+            let diagnosis = inspect::diagnose(&link, &e.target);
+            if !diagnosis.is_healthy() {
+                problems.push((link, e.target, diagnosis));
+            }
+        }
+        let problem_count = problems.len() + usize::from(pending.is_some());
+        if problem_count == 0 {
+            println!(
+                "OK {checked} {}",
+                if checked == 1 { "link" } else { "links" }
             );
+            return Ok(0);
         }
-        println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET");
-        for e in selected(&r, &args.operands)? {
-            failed |= !inspect::report(&r.link(&e)?, &e.target);
+        println!(
+            "{problem_count} {} found ({checked} {} checked)",
+            if problem_count == 1 {
+                "problem"
+            } else {
+                "problems"
+            },
+            if checked == 1 { "link" } else { "links" }
+        );
+        if let Some(p) = &pending {
+            println!();
+            println!("! incomplete operation");
+            println!("  operation: {}", format!("{:?}", p.op).to_lowercase());
+            println!("  link: {}", inspect::display_link(&p.link));
+            println!("  target: {}", inspect::display_text(&p.entry.target));
+            println!("  repeat the original command with the same target and options to recover");
         }
-        return Ok(u8::from(failed));
+        for (link, target, diagnosis) in problems {
+            println!();
+            diagnosis.print(&link, &target);
+        }
+        return Ok(1);
     }
     let _lock = if args.dry_run { None } else { Some(r.lock()?) };
     let pending = transaction::load(&r)?;
