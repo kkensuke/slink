@@ -162,10 +162,7 @@ fn parents_plan(link: &Path, parents: bool, dry_run: bool) -> Result<()> {
         if !parents {
             bail!("parent directory is missing; use --parents: {parent:?}");
         }
-        println!(
-            "{}MKDIR\t{parent:?}",
-            if dry_run { "WOULD_" } else { "" }
-        );
+        println!("{}MKDIR\t{parent:?}", if dry_run { "WOULD_" } else { "" });
     }
     Ok(())
 }
@@ -384,21 +381,19 @@ fn remove(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
     );
     if a.dry_run {
         r.preview_bytes(after.as_bytes())?;
+    } else if old.is_none() {
+        r.save_bytes(after.as_bytes())?;
     } else {
-        if old.is_none() {
-            r.save_bytes(after.as_bytes())?;
-        } else {
-            let pending = transaction::begin(
-                r,
-                Operation::Remove,
-                e.clone(),
-                p.to_path_buf(),
-                old,
-                after,
-                a.parents,
-            )?;
-            transaction::finish(r, &pending)?;
-        }
+        let pending = transaction::begin(
+            r,
+            Operation::Remove,
+            e.clone(),
+            p.to_path_buf(),
+            old,
+            after,
+            a.parents,
+        )?;
+        transaction::finish(r, &pending)?;
     }
     Ok(())
 }
