@@ -218,10 +218,7 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
         health.annotation()
     ));
     if let Some(reason) = health.reason() {
-        lines.push(format!(
-            "  {label} reason: {}",
-            display_text(reason)
-        ));
+        lines.push(format!("  {label} reason: {}", display_text(reason)));
     }
 }
 
