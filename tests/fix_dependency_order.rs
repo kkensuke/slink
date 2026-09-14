@@ -82,3 +82,39 @@ fn dry_run_resolves_suffix_through_a_projected_managed_link() {
     assert!(fs::symlink_metadata(f.path("managed/base")).is_err());
     assert!(fs::symlink_metadata(f.path("top")).is_err());
 }
+
+#[test]
+fn fix_orders_a_managed_path_dependency_before_its_dependent() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("source-dir")).unwrap();
+    f.write("source-dir/child", "ok");
+    fs::create_dir_all(f.path("managed")).unwrap();
+    f.write_entries(&[
+        ("top", "managed/base/child"),
+        ("managed/base", "source-dir"),
+    ]);
+
+    let output = f.ok(&["fix"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let base = stdout.find("managed/base").unwrap();
+    let top = stdout.find("top").unwrap();
+
+    assert!(base < top, "stdout={stdout:?}");
+}
+
+#[test]
+fn dry_run_preserves_parent_traversal_after_a_projected_symlink() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("source-dir/subdir")).unwrap();
+    f.write("source-dir/sibling", "ok");
+    fs::create_dir_all(f.path("managed")).unwrap();
+    f.write_entries(&[
+        ("managed/base", "source-dir/subdir"),
+        ("top", "managed/base/../sibling"),
+    ]);
+
+    let output = f.ok(&["fix", "-n"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(!stdout.contains("target is missing"), "stdout={stdout:?}");
+}
