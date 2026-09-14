@@ -576,16 +576,12 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
     let link = display_link(p);
     let mut lines = Vec::new();
     match &diagnosis.link {
-        LinkState::Match(actual) => {
-            let (expected, health) = if let Some(health) = diagnosis
+        LinkState::Match(_) => {
+            let health = diagnosis
                 .actual_health
                 .as_ref()
                 .filter(|h| !h.is_reachable())
-            {
-                (actual.as_str(), health)
-            } else {
-                (expected, &diagnosis.expected_health)
-            };
+                .unwrap_or(&diagnosis.expected_health);
             match health {
                 TargetHealth::Reachable => {}
                 TargetHealth::Missing => {
