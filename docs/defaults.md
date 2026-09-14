@@ -6,6 +6,8 @@
 | Accept leading `~/` | CLI input only | Input can be short while storage stays absolute. |
 | Store registry paths | Absolute only | Hand edits and CLI writes follow the same rule. |
 | List registrations | Stored strings without path validation | Hand-edited values stay visible, including mistakes; check validates the registry and actual links. |
+| Display mutation results | One human-readable block per reported link | Paths, targets, and diagnostics share the read-only commands' display rules. |
+| Display healthy unchanged links during fix | Count only | Changed links and target problems stay visible. |
 | Create or restore symlinks | Absolute target | New links use one target representation. |
 | Register a matching existing symlink | On | Creation can bring registrations into agreement without a separate adopt step. |
 | Replace a different symlink | Off; `-f` / `--force` | Existing references can be intentional. Both create and fix use the same rule. |

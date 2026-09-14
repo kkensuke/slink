@@ -81,7 +81,7 @@ The second operand is always the exact location of the link. slink never appends
 | A symlink with a different reference path | Report a conflict and suggest `-f` | Replace the symlink; add or update its registration |
 | A regular file, directory, or other filesystem object | Report a conflict and preserve it | Same |
 
-This works for both registered and unregistered symlinks. When the symlink and registration already match, the command reports `UNCHANGED`.
+This works for both registered and unregistered symlinks. When the symlink and registration already match, the command reports `unchanged`.
 
 ```sh
 slink -f ~/dotfiles/git/.gitconfig ~/.gitconfig
@@ -185,7 +185,7 @@ slink check -- -link
 
 The first command uses the file `list` in the working directory as its target. The second checks the registered link named `-link`. Ordinary paths such as `./list-link` do not need `--` after a command.
 
-Parent creation, replacement, dry-run, keeping removed links, and recursive scanning are opt-in. Newly created links are always registered; missing targets are allowed and reported. No command options are stored in the registry. See [default decisions](docs/defaults.md).
+Parent creation, replacement, dry-run, keeping removed links, and recursive scanning are opt-in. Newly created links are always registered; missing targets are allowed and reported. See [default decisions](docs/defaults.md).
 
 ## Scan and output
 
@@ -202,6 +202,34 @@ Scan is shallow unless `-R` is specified. Recursive scans include ordinary subdi
 Management is determined by each link's location. Links at different locations are separate registrations, even if they point to the same target. Registering a link to a directory does not register links inside that directory. `check` inspects registered links; `scan` discovers links within its search scope, including unmanaged ones.
 
 Human output groups scan results into managed and unmanaged links, with problems first. A healthy `check` prints only `OK N links`. Human link locations under the home directory may display as `~/…`; registry values stay absolute. Targets are quoted and control characters escaped. Colors are enabled only on a terminal, and disabled by `NO_COLOR` or `TERM=dumb`.
+
+### Changes and previews
+
+Creation, adoption, removal, fix, and recovery show a link's location, an action such as `created`, `registered`, `removed`, or `unchanged`, and the registered target on the next line. Parent directory creation appears as an additional detail. Completion is reported after the operation succeeds.
+
+`fix` displays changed links and links with target problems, and summarizes healthy unchanged links by count. For example, restoring one missing link while leaving 22 healthy links unchanged produces:
+
+```text
+✓ ~/links/example.txt — created
+  → "/Users/you/files/example.txt"
+
+1 changed, 22 unchanged
+```
+
+Running `slink fix -n` previews the same operation:
+
+```text
+○ ~/links/example.txt — would create
+  → "/Users/you/files/example.txt"
+
+1 change planned, 22 unchanged
+```
+
+`✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or failure. A target problem is shown even when the link is unchanged. Recoveries use labels such as `recovered creation` and `would recover creation`.
+
+Fix and operations processing multiple links end with counts of changed, unchanged, and failed entries; failed counts appear when nonzero. A changed entry can mean a filesystem change, a registration change, or both. Target issues are counted separately and do not make a completed mutation fail. Results and target warnings go to stdout; operation errors include the link and reason on stderr. Counts cover processed entries.
+
+### TSV
 
 TSV has a header and one row per link:
 
