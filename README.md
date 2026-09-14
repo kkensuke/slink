@@ -34,6 +34,8 @@ flowchart LR
     R["links.toml\nregistry file"] -. "records link / target" .-> L
 ```
 
+`links.toml` is the default file name shown in the diagram. It is not fixed: `--file` can select any file name and location. See [Selecting a file](#selecting-a-file) below for the default location.
+
 The registry file contains roughly:
 
 ```toml
