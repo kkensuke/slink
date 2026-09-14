@@ -16,9 +16,9 @@
 | Scan recursively without following symlink directories | On | Discovery stays inside the selected directory tree. |
 
 Without `--relative`, `slink src sub/link` stores `src`, which resolves to `sub/src`.
-With `--relative`, the same operands produce `../src`, referring to `src` in the invocation directory.
-Conversion preserves target-side symlink paths and meaningful `..` components.
+With `--relative`, the same operands produce `../src`, referring to `src` in the working directory (the directory where the command runs).
+If the supplied target path names or passes through another symbolic link, conversion keeps that reference. It also preserves `..` components whose removal would change which path is reached. See the [path model](../README.md#path-model) and [`--relative` examples](../README.md#options-and-defaults).
 
 `--parents` creates only link parent directories, never target directories. Removing a link leaves those parents in place. Recreating parents later requires `fix --parents` again.
 
-These are command-line policies, not additional per-entry settings. The registry stores only the link path and the final target text.
+No `relative` or `parents` settings are stored in the registry file. Each entry stores only the link path and the target text. `--relative` determines that text; `--parents` applies only to the current command.
