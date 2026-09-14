@@ -34,6 +34,7 @@ pub struct Args {
     pub parents: bool,
     pub replace: bool,
     pub keep_link: bool,
+    check_format_set: bool,
 }
 
 impl Args {
@@ -48,6 +49,7 @@ impl Args {
             parents: false,
             replace: false,
             keep_link: false,
+            check_format_set: false,
         };
         let mut input = input.into_iter();
         let mut literal = false;
@@ -83,6 +85,7 @@ impl Args {
                             .filter(|x| !x.is_empty())
                             .ok_or_else(|| anyhow::anyhow!("--format needs human or tsv"))?;
                         a.check_format = parse_check_format(&value)?;
+                        a.check_format_set = true;
                         continue;
                     }
                     "--dry-run" => {
@@ -117,6 +120,7 @@ impl Args {
                             bail!("--format needs human or tsv");
                         }
                         a.check_format = parse_check_format(&s[9..])?;
+                        a.check_format_set = true;
                         continue;
                     }
                     _ if s.starts_with('-') => {
@@ -156,7 +160,7 @@ impl Args {
             }
             _ => {}
         }
-        if a.check_format != CheckFormat::Human && a.command != Command::Check {
+        if a.check_format_set && a.command != Command::Check {
             bail!("--format is only valid for check");
         }
         if a.relative && a.command != Command::Create {
