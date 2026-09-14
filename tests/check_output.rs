@@ -54,7 +54,11 @@ fn check_reports_a_missing_target_without_repeating_internal_states() {
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("— target is missing\n  target: \"missing\"\n"));
+    assert!(stdout.contains(&format!(
+        "— target is missing\n  target: {:?}\n",
+        f.path("missing")
+    )));
+    assert!(!stdout.contains("  actual:"));
     assert!(!stdout.contains("MATCH"));
     assert!(!stdout.contains("MISSING\t"));
 }
