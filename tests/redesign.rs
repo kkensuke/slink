@@ -90,6 +90,28 @@ fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
 }
 
 #[test]
+fn registry_path_errors_do_not_guess_from_the_working_directory() {
+    let f = Fixture::new();
+    f.write_registry(&format!(
+        "version = 2\n[[link]]\nlink = {:?}\ntarget = 'PhD'\n",
+        f.path("link")
+    ));
+    let first = f.run(&["check"]);
+    let second = f
+        .command(&["check"])
+        .current_dir(f.path("home"))
+        .output()
+        .unwrap();
+    assert_eq!(first.status.code(), Some(2));
+    assert_eq!(second.status.code(), Some(2));
+    assert_eq!(first.stderr, second.stderr);
+    let error = String::from_utf8(first.stderr).unwrap();
+    assert!(error.contains("registry target must be an absolute path: \"PhD\""));
+    assert!(!error.contains("working directory"));
+    assert!(!error.contains(f.path("PhD").to_str().unwrap()));
+}
+
+#[test]
 fn create_registers_matching_links_and_force_updates_both_states() {
     let f = Fixture::new();
     symlink("one", f.path("link")).unwrap();

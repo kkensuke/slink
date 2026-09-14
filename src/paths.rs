@@ -73,8 +73,7 @@ pub fn from_cli(s: &str) -> Result<PathBuf> {
 pub fn registry_path(s: &str, field: &str) -> Result<PathBuf> {
     validate_target(s)?;
     if !Path::new(s).is_absolute() {
-        let example = from_cli(s)?;
-        bail!("registry {field} must be an absolute path: {s:?}; replace it with an absolute path such as {example:?} (using the current working directory for relative input)");
+        bail!("registry {field} must be an absolute path: {s:?}");
     }
     Ok(normalize(Path::new(s)))
 }
