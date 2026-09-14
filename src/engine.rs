@@ -165,14 +165,9 @@ fn parents_plan(link: &Path, parents: bool, dry: bool) -> Result<()> {
 }
 
 fn ensure_separate(r: &Registry, link: &Path) -> Result<()> {
-    let key = paths::key(link)?;
     for e in &r.entries {
-        let other = paths::key(&r.link(e)?)?;
-        if key == other {
-            bail!("duplicate/ambiguous destination: {link:?}");
-        }
-        if key.starts_with(&(other.clone() + "/")) || other.starts_with(&(key.clone() + "/")) {
-            bail!("nested managed destinations are not supported; manage the parent or its children: {link:?}");
+        if paths::overlaps(link, &r.link(e)?)? {
+            bail!("duplicate or nested managed destination; manage the parent or its children: {link:?}");
         }
     }
     Ok(())
@@ -180,6 +175,7 @@ fn ensure_separate(r: &Registry, link: &Path) -> Result<()> {
 
 fn create(r: &mut Registry, a: &Args) -> Result<()> {
     let link = paths::link_from_cli(&a.operands[1])?;
+    r.validate_destination(&link)?;
     let target = create_target(a, &link)?;
     if let Some(i) = r.find(&link)? {
         if r.entries[i].target == target
@@ -231,11 +227,8 @@ fn mutate_many(r: &mut Registry, a: &Args, operands: &[String]) -> Result<u8> {
     };
     if a.command == Command::Fix {
         for (i, e) in entries.iter().enumerate() {
-            let k = paths::key(&r.link(e)?)?;
             for other in &entries[..i] {
-                let o = paths::key(&r.link(other)?)?;
-                if k == o || k.starts_with(&(o.clone() + "/")) || o.starts_with(&(k.clone() + "/"))
-                {
+                if paths::overlaps(&r.link(e)?, &r.link(other)?)? {
                     bail!("ambiguous or nested destinations; select one link at a time");
                 }
             }
@@ -281,6 +274,7 @@ fn mutate_many(r: &mut Registry, a: &Args, operands: &[String]) -> Result<u8> {
 }
 
 fn adopt(r: &mut Registry, a: &Args, p: &Path) -> Result<()> {
+    r.validate_destination(p)?;
     let s = inspect::snapshot(p)?.context("no symlink to adopt")?;
     if let Some(i) = r.find(p)? {
         if r.entries[i].target != s.target {
@@ -313,6 +307,7 @@ fn adopt(r: &mut Registry, a: &Args, p: &Path) -> Result<()> {
 }
 
 fn fix(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
+    r.validate_destination(p)?;
     let old = inspect::snapshot(p)?;
     if let Some(s) = &old {
         if s.target == e.target {
@@ -370,6 +365,7 @@ fn remove(r: &mut Registry, a: &Args, e: &Entry, p: &Path) -> Result<()> {
         }
         return Ok(());
     }
+    r.validate_destination(p)?;
     let old = inspect::snapshot(p)?;
     if old.as_ref().is_some_and(|s| s.target != e.target) {
         bail!("MISMATCH: link left untouched; use --keep-link to unregister only");

@@ -107,6 +107,28 @@ pub fn key(p: &Path) -> Result<String> {
     Ok(s)
 }
 
+// Include both physical destinations and the directories traversed to reach
+// them: canonicalizing a symlink parent alone hides a parent/child dependency.
+pub fn overlaps(a: &Path, b: &Path) -> Result<bool> {
+    let ak = key(a)?;
+    let bk = key(b)?;
+    if ak == bk || ak.starts_with(&(bk.clone() + "/")) || bk.starts_with(&(ak.clone() + "/")) {
+        return Ok(true);
+    }
+    for (child, parent_key) in [(a, &bk), (b, &ak)] {
+        for parent in child
+            .ancestors()
+            .skip(1)
+            .filter(|p| p.file_name().is_some())
+        {
+            if key(parent)? == *parent_key {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 pub fn relative_target(target: &str, link: &Path) -> Result<String> {
     validate_target(target)?;
     let target = absolute(Path::new(target))?;

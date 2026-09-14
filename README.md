@@ -119,6 +119,9 @@ Missing targets are allowed and reported. Ordinary files/directories are never
 overwritten by `fix --replace` or deleted by `remove`. An unregistered existing
 symlink must be adopted first. A changed managed link must be explicitly replaced
 or unregistered with `--keep-link`.
+The selected registry, its control files, and their parent paths cannot themselves
+be managed destinations. Put the registry elsewhere with `--file` if you need to
+manage a directory that would contain it.
 
 Mutation commands use a registry lock and compare registry contents again before
 saving. They retain a small operation record if a create/register, remove, or

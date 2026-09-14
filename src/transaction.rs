@@ -150,6 +150,7 @@ fn sync_parent(p: &Path) -> Result<()> {
 // One read-only preflight is shared by execution and dry-run recovery.
 fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
     r.verify()?;
+    r.validate_destination(&p.link)?;
     let current = r.original.as_deref();
     if current != p.before.as_deref().map(str::as_bytes) && current != Some(p.after.as_bytes()) {
         bail!("registry differs from the pending operation; preserve the pending file and resolve the conflict");

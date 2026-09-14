@@ -31,10 +31,13 @@ impl Registry {
         let requested = if let Some(f) = file {
             paths::absolute(f)?
         } else {
-            let root = std::env::var_os("XDG_CONFIG_HOME")
+            let root = match std::env::var_os("XDG_CONFIG_HOME")
                 .map(PathBuf::from)
                 .filter(|x| x.is_absolute())
-                .unwrap_or(paths::home()?.join(".config"));
+            {
+                Some(root) => root,
+                None => paths::home()?.join(".config"),
+            };
             root.join("slink/links.toml")
         };
         let path = match fs::symlink_metadata(&requested) {
@@ -155,6 +158,19 @@ impl Registry {
                 .and_then(|s| s.to_str())
                 .context("registry filename must be UTF-8")?
         )))
+    }
+    pub fn validate_destination(&self, link: &Path) -> Result<()> {
+        for control in [
+            self.requested.clone(),
+            self.path.clone(),
+            self.sidecar("lock")?,
+            self.sidecar("pending")?,
+        ] {
+            if paths::overlaps(link, &control)? {
+                bail!("destination overlaps the registry or its control files: {link:?}");
+            }
+        }
+        Ok(())
     }
     pub fn lock(&self) -> Result<File> {
         fs::create_dir_all(self.path.parent().context("registry parent")?)?;

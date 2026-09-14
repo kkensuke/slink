@@ -541,3 +541,78 @@ fn removal_recovery_dry_run_preserves_the_link_and_previews_the_batch() {
         assert_eq!(f.entries(), 0);
     }
 }
+
+#[test]
+fn registry_and_its_control_paths_cannot_be_managed_links() {
+    let f = Fixture::new();
+    assert_eq!(f.run(&["future", "links.toml"]).status.code(), Some(1));
+    assert!(fs::symlink_metadata(f.path("links.toml")).is_err());
+    assert!(!f.path("links.toml.slink-pending").exists());
+    assert_eq!(
+        f.run(&["future", "links.toml.slink-pending"]).status.code(),
+        Some(1)
+    );
+    assert!(!f.path("links.toml.slink-pending").exists());
+    f.write("manifest", "version = 1\n");
+    symlink("manifest", f.path("links.toml")).unwrap();
+    assert_eq!(f.run(&["adopt", "links.toml"]).status.code(), Some(1));
+    assert_eq!(f.registry(), "version = 1\n");
+    assert_eq!(f.target("links.toml"), Path::new("manifest"));
+}
+
+#[test]
+fn default_registry_uses_absolute_xdg_and_falls_back_for_other_values() {
+    for xdg in [None, Some(""), Some("relative"), Some("absolute")] {
+        let f = Fixture::new();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_slink"));
+        command
+            .current_dir(&f.root)
+            .env("HOME", f.path("home"))
+            .env_remove("SLINK_TEST_CRASH")
+            .env_remove("XDG_CONFIG_HOME")
+            .args(["future", "link"]);
+        let registry = if xdg == Some("absolute") {
+            command
+                .env("XDG_CONFIG_HOME", f.path("config"))
+                .env_remove("HOME");
+            f.path("config/slink/links.toml")
+        } else {
+            if let Some(xdg) = xdg {
+                command.env("XDG_CONFIG_HOME", xdg);
+            }
+            f.path("home/.config/slink/links.toml")
+        };
+        let output = command.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(registry.is_file());
+        assert!(!f.path("relative").exists());
+        assert_eq!(f.target("link"), Path::new("future"));
+    }
+}
+
+#[test]
+fn nested_destinations_are_detected_through_directory_aliases() {
+    for dry in [true, false] {
+        let f = Fixture::new();
+        fs::create_dir_all(f.path("outer/data")).unwrap();
+        symlink("data", f.path("outer/parent")).unwrap();
+        symlink("outer", f.path("alias")).unwrap();
+        symlink("future", f.path("outer/data/child")).unwrap();
+        let mut args = vec!["adopt", "outer/parent", "alias/parent/child"];
+        if dry {
+            args.push("--dry-run");
+        }
+        assert_eq!(f.run(&args).status.code(), Some(1));
+        if dry {
+            assert!(!f.path("links.toml").exists());
+        } else {
+            assert_eq!(f.entries(), 1);
+        }
+        assert_eq!(f.target("outer/data/child"), Path::new("future"));
+    }
+}
