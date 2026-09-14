@@ -63,3 +63,19 @@ fn dry_run_chained_links_uses_the_projected_final_state() {
     assert!(!dependent_first.0.contains("target is missing"));
     assert!(dependent_first.1.is_empty());
 }
+
+#[test]
+fn dry_run_resolves_suffix_through_a_projected_managed_link() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("source-dir")).unwrap();
+    f.write("source-dir/child", "ok");
+    fs::create_dir_all(f.path("managed")).unwrap();
+    f.write_entries(&[("managed/base", "source-dir"), ("top", "managed/base/child")]);
+
+    let output = f.ok(&["fix", "-n"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(!stdout.contains("target is missing"), "stdout={stdout:?}");
+    assert!(fs::symlink_metadata(f.path("managed/base")).is_err());
+    assert!(fs::symlink_metadata(f.path("top")).is_err());
+}
