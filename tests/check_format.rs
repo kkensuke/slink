@@ -50,7 +50,10 @@ fn read_only_views_accept_supported_formats_and_reject_invalid_formats() {
     assert!(f.run(&["list", "--format", "tsv"]).status.success());
     assert!(f.run(&["list", "--format", "human"]).status.success());
     assert!(f.run(&["scan", "--format", "tsv", "tree"]).status.success());
-    assert!(f.run(&["scan", "--format", "human", "tree"]).status.success());
+    assert!(f
+        .run(&["scan", "--format", "human", "tree"])
+        .status
+        .success());
 
     assert_eq!(f.run(&["check", "--format", "json"]).status.code(), Some(2));
     assert_eq!(f.run(&["fix", "--format", "tsv"]).status.code(), Some(2));
