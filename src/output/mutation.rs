@@ -59,7 +59,6 @@ pub struct MutationOutput {
     target_issues: usize,
     printed: bool,
     deferred: Vec<MutationResult>,
-    projected_parents: HashSet<PathBuf>,
 }
 
 impl MutationOutput {
@@ -73,7 +72,6 @@ impl MutationOutput {
             target_issues: 0,
             printed: false,
             deferred: Vec::new(),
-            projected_parents: HashSet::new(),
         }
     }
 
@@ -118,11 +116,7 @@ impl MutationOutput {
         let warning = problem.map_or(String::new(), |p| format!("; {p}"));
         outln!("{marker} {} — {label}{warning}", display_link(&result.link));
         outln!("  → {}", quoted(&result.target));
-        let parent = result
-            .parent
-            .as_ref()
-            .filter(|parent| !self.dry_run || self.projected_parents.insert((*parent).clone()));
-        if let Some(parent) = parent {
+        if let Some(parent) = &result.parent {
             outln!(
                 "  parent: {} ({})",
                 display_link(parent),
