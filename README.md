@@ -7,13 +7,20 @@ targets in a hand-editable TOML file, then inspect, restore, or remove them.
 
 With a current stable Rust toolchain:
 
+While the initial PR is open, install its branch:
+
+```sh
+cargo install --git https://github.com/kkensuke/slink.git --branch feat/slink-cli --locked
+```
+
+After it is merged, install from the repository's default branch:
+
 ```sh
 git clone https://github.com/kkensuke/slink.git
 cd slink
 cargo install --path . --locked
 ```
 
-While development is in the initial PR, check out `feat/slink-cli` before installing.
 Successful macOS CI jobs also provide a release executable as an Actions artifact.
 The supported user platform is macOS; Linux CI exercises the portable logic.
 
@@ -125,8 +132,10 @@ manage a directory that would contain it.
 
 Mutation commands use a registry lock and compare registry contents again before
 saving. They retain a small operation record if a create/register, remove, or
-replacement operation is interrupted. Repeat the original command with the same
-operands and options to resume. `check` reports pending operations, and unrelated
+replacement operation is interrupted. Repeat the operation for the failed link
+with the same target and options to resume. `check` identifies the pending link;
+for a partly completed removal batch, omit paths already unregistered by earlier
+items. Unrelated
 mutations stop until recovery is resolved. Recovery rechecks the actual files; it
 does not overwrite a conflicting manual edit.
 

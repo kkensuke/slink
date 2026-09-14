@@ -402,7 +402,10 @@ fn replacement_requires_same_authorization_during_recovery() {
         symlink("old", f.path("link")).unwrap();
         f.crash(&["fix", "--replace"], stage);
         assert_ne!(f.run(&["fix"]).status.code(), Some(0));
-        f.ok(&["fix", "--replace"]);
+        let output = f.ok(&["fix", "--replace"]);
+        assert!(String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("MISSING"));
         assert_eq!(f.target("link"), Path::new("expected"));
     }
 }

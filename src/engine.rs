@@ -36,9 +36,10 @@ pub fn run(args: Args) -> Result<u8> {
     let pending = transaction::load(&r)?;
     if args.command == Command::Check {
         let mut failed = pending.is_some();
-        if failed {
+        if let Some(p) = &pending {
             eprintln!(
-                "PENDING: incomplete operation; repeat the original mutation command to recover"
+                "PENDING: {:?} {:?} -> {:?}; repeat the operation for this link with the original options to recover",
+                p.op, p.link, p.entry.target
             );
         }
         println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET");
@@ -74,8 +75,10 @@ pub fn run(args: Args) -> Result<u8> {
                 .context("recovery stopped; pending operation retained")?;
             println!("RECOVERED\t{:?}", p.link);
         }
-        if args.command == Command::Create {
+        if args.command != Command::Remove {
             inspect::warn_target(&p.link, &p.entry.target);
+        }
+        if args.command == Command::Create {
             return Ok(0);
         }
         // The original removal may already be unregistered. Do not remove a new
@@ -264,7 +267,7 @@ fn mutate_many(r: &mut Registry, a: &Args, operands: &[String]) -> Result<u8> {
             }
             if !a.dry_run && transaction::load(r)?.is_some() {
                 eprintln!(
-                    "PENDING: stopped subsequent changes; repeat the original command to recover"
+                    "PENDING: stopped subsequent changes; repeat the operation for the failed link to recover"
                 );
                 break;
             }
