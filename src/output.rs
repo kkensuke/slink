@@ -14,6 +14,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod mutation;
+pub use mutation::{MutationAction, MutationOutput, MutationResult};
+
 static STDOUT_ERROR: std::sync::OnceLock<io::Error> = std::sync::OnceLock::new();
 
 pub fn write_stdout(args: std::fmt::Arguments<'_>) {
@@ -695,11 +698,4 @@ fn quoted(text: &str) -> String {
         }
     }
     escaped
-}
-
-pub fn warn_target(p: &Path, target: &str) {
-    let health = inspect::target_health(&paths::target_path(p, target));
-    if !health.is_reachable() {
-        eprintln!("warning: target {}: {p:?} -> {target:?}", health.code());
-    }
 }

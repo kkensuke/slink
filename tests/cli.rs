@@ -43,7 +43,9 @@ fn create_check_list_and_idempotency() {
 fn dangling_link_is_created_and_diagnosed() {
     let f = Fixture::new();
     let o = f.ok(&["future", "link"]);
-    assert!(String::from_utf8(o.stderr).unwrap().contains("MISSING"));
+    assert!(String::from_utf8(o.stdout)
+        .unwrap()
+        .contains("target is missing"));
     assert!(fs::symlink_metadata(f.path("link"))
         .unwrap()
         .file_type()
@@ -104,7 +106,7 @@ fn dry_run_creates_no_registry_lock_journal_or_directories() {
     let o = f.ok(&["--parents", "--dry-run", "source", "deep/child/link"]);
     assert!(String::from_utf8(o.stdout)
         .unwrap()
-        .contains("WOULD_CREATE"));
+        .contains("would create"));
     assert_eq!(before, fs::read_dir(&f.root).unwrap().count());
     assert!(!f.path("deep").exists());
     symlink("future", f.path("existing")).unwrap();
@@ -344,9 +346,9 @@ fn replacement_requires_same_authorization_during_recovery() {
         f.crash(&["fix", "--force"], stage);
         assert_ne!(f.run(&["fix"]).status.code(), Some(0));
         let output = f.ok(&["fix", "--force"]);
-        assert!(String::from_utf8(output.stderr)
+        assert!(String::from_utf8(output.stdout)
             .unwrap()
-            .contains("MISSING"));
+            .contains("target is missing"));
         assert_eq!(f.target("link"), f.path("expected"));
     }
 }
@@ -427,8 +429,8 @@ fn recovery_dry_run_checks_destinations_and_previews_remaining_items() {
     let registry = f.registry();
     let pending = fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap();
     let output = String::from_utf8(f.ok(&["fix", "--force", "--dry-run"]).stdout).unwrap();
-    assert_eq!(output.matches("WOULD_RECOVER").count(), 1);
-    assert_eq!(output.matches("WOULD_REPLACE").count(), 2);
+    assert_eq!(output.matches("would recover").count(), 1);
+    assert_eq!(output.matches("would replace").count(), 2);
     assert_eq!(f.registry(), registry);
     assert_eq!(
         fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap(),
@@ -453,8 +455,8 @@ fn dry_run_adopt_recognizes_aliases_planned_earlier_in_the_batch() {
             .stdout,
     )
     .unwrap();
-    assert_eq!(output.matches("WOULD_REGISTER").count(), 1);
-    assert_eq!(output.matches("UNCHANGED").count(), 0);
+    assert_eq!(output.matches("would register").count(), 1);
+    assert_eq!(output.matches("— unchanged").count(), 0);
     assert!(!f.path("config/slink/links.toml").exists());
     assert!(!f.path("config/slink/links.toml.slink-lock").exists());
     f.ok(&["adopt", "dir/link", "alias/link"]);
@@ -472,8 +474,8 @@ fn removal_recovery_dry_run_preserves_the_link_and_previews_the_batch() {
         let pending = fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap();
         let original = fs::read_link(f.path("a")).ok();
         let output = String::from_utf8(f.ok(&["remove", "--dry-run", "a", "b"]).stdout).unwrap();
-        assert!(output.contains("WOULD_RECOVER"));
-        assert!(output.contains("WOULD_REMOVE+UNREGISTER"));
+        assert!(output.contains("would recover"));
+        assert!(output.contains("would remove"));
         assert_eq!(f.registry(), registry);
         assert_eq!(
             fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap(),
