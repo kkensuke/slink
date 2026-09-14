@@ -29,9 +29,13 @@ slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
 This creates the symbolic link `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`. `--parents` creates the link parent directory `/Users/you/.config` if it is missing. If an ordinary file or directory already exists at `/Users/you/.config/nvim`, slink does not overwrite it.
 
 ```mermaid
-flowchart LR
-    L["/Users/you/.config/nvim\nmanaged link"] == "target" ==> T["/Users/you/dotfiles/nvim\nreferenced path"]
-    R["links.toml\nregistry file"] -. "records link / target" .-> L
+flowchart TB
+    R["registry file<br/>links.toml"]
+    L["managed link<br/>/Users/you/.config/nvim"]
+    T["referenced path<br/>/Users/you/dotfiles/nvim"]
+
+    R -. "records link / target" .-> L
+    L == "target" ==> T
 ```
 
 `links.toml` is the default file name shown in the diagram. It is not fixed: `--file` can select any file name and location. See [Selecting a file](#selecting-a-file) below for the default location.
