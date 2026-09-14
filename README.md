@@ -37,8 +37,6 @@ This creates `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`, 
 The registry contains:
 
 ```toml
-version = 2
-
 [[link]]
 link = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
@@ -63,8 +61,8 @@ slink scan [options] [directory ...]
 | --- | --- |
 | `slink <target> <link>` | Make the link and registry agree with the CLI arguments |
 | `slink --config` | Print the registry path without creating a file or directory |
-| `slink list` | Display registrations without checking link or target health |
-| `slink check [link ...]` | Compare registered and actual reference paths, and check target availability |
+| `slink list` | Display the stored link and target strings without path validation or filesystem inspection |
+| `slink check [link ...]` | Validate registry paths, compare registered and actual references, and check target availability |
 | `slink fix [link ...]` | Restore links from the registry; changing an existing different symlink requires `-f` |
 | `slink remove <link ...>` | Delete matching registered links and unregister them; never delete their targets |
 | `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing those symlinks |
@@ -106,9 +104,9 @@ Here the new target can itself be a symlink. slink keeps that reference instead 
 | Registry `link` and `target` | Absolute paths only, including hand edits |
 | Newly created or restored symlink target | Absolute path |
 
-`~/` is an input abbreviation only. The shell normally expands it first; slink also accepts it when quoted. The registry does not expand `~`, variables, or shell expressions. Invalid relative registry paths produce an error with an absolute-path example.
+`~/` is an input abbreviation only. The shell normally expands it first; slink also accepts it when quoted. The registry does not expand `~`, variables, or shell expressions.
 
-Redundant `.` components are removed. A `..` component is simplified only when its preceding path is known to be an ordinary directory; symlink, missing, or inaccessible components are preserved. Target suffixes such as `/` and `/.` retain their directory requirement. Target symlinks are never replaced with their final destinations during conversion. Distinct reference paths can remain different even when they eventually reach the same file.
+During path conversion, redundant `.` components are removed. A `..` component is simplified only when its preceding path is known to be an ordinary directory; symlink, missing, or inaccessible components are preserved. Target suffixes such as `/` and `/.` retain their directory requirement. Target symlinks are never replaced with their final destinations during conversion. Distinct reference paths can remain different even when they eventually reach the same file.
 
 For example, a registry can record the first link in this chain while the target is itself another symlink:
 
@@ -145,7 +143,11 @@ slink --config
 code "$(slink --config)"
 ```
 
-One registration is one complete `[[link]]` block. The schema is version 2, with exactly `link` and `target` in each block. Both values must be absolute paths. Older schemas and the retired `--file`, `--relative`, and `--replace` options are rejected. `config` is now an ordinary filename; use `--config` to display the registry location.
+One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. There is no `version` field or other top-level setting. An empty file represents no registrations.
+
+`list` displays entries in file order, including invalid paths and duplicate registrations. For example, a hand-edited `target = "PhD"` remains visible in the list. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links; they reject that target because it is not absolute. Path errors identify the registry file, entry number, and invalid field without guessing what path you intended.
+
+All commands that read registrations, including `list`, require valid TOML and the entry structure above. A syntax error, missing field, non-string value, or unknown field prevents the file from being read; no partial list is printed.
 
 | Hand edit | Effect |
 | --- | --- |
@@ -209,7 +211,7 @@ TSV has a header and one row per link:
 | check | `LINK_STATE`, `TARGET_STATE`, `LINK`, `TARGET`, `ACTUAL_TARGET_STATE`, `ACTUAL_TARGET` |
 | scan | `MANAGEMENT`, `TARGET_STATE`, `LINK`, `TARGET`, `LINK_STATE`, `EXPECTED_TARGET_STATE`, `EXPECTED_TARGET` |
 
-Path/target cells are JSON strings, optional absent cells are empty, and diagnostic reasons go to stderr. For check, `TARGET` is the registered absolute target and `ACTUAL_TARGET` is the text read from the link. For scan, `TARGET` is the actual text and `EXPECTED_TARGET` is the registered absolute target. Thus a matching adopted link can have different text in those columns.
+Path/target cells are JSON strings, optional absent cells are empty, and diagnostic reasons go to stderr. For list, both columns contain the stored strings without path conversion. For check, `TARGET` is the registered absolute target and `ACTUAL_TARGET` is the text read from the link. For scan, `TARGET` is the actual text and `EXPECTED_TARGET` is the registered absolute target. Thus a matching adopted link can have different text in those columns.
 
 ## Safety and recovery
 
@@ -226,6 +228,8 @@ The registry can have adjacent `.slink-lock` and `.slink-pending` files, and rep
 | 0 | The operation completed; check found all selected entries healthy |
 | 1 | Check found a problem, an item failed/conflicted, or scan could not complete an inspection |
 | 2 | Invalid arguments/registry, unavailable registry, or blocked recovery |
+
+`list` returns 0 when it can read and display the entries, even if their paths are invalid. This does not mean the registry or links passed a check. `check` returns 2 for invalid registry values, and 1 for problems with the actual links or their targets.
 
 Successful creation/fix returns 0 even with a missing target; check returns 1 for it. Scan returns 1 for permission/I/O failures, but does not fail merely because it discovers missing or unresolvable targets. Fix without `-f` returns 1 if a different symlink remains unrepaired.
 

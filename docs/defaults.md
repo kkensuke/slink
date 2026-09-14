@@ -4,7 +4,8 @@
 | --- | --- | --- |
 | Interpret CLI relative paths | Working directory | Both operands use one starting point. |
 | Accept leading `~/` | CLI input only | Input can be short while storage stays absolute. |
-| Store registry paths | Absolute only, schema v2 | Hand edits and CLI writes follow the same rule. |
+| Store registry paths | Absolute only; no version field | Hand edits and CLI writes follow the same rule. |
+| List registrations | Stored strings without path validation | Hand-edited values stay visible, including mistakes; check validates the registry and actual links. |
 | Create or restore symlinks | Absolute target | No separate relative-generation mode or saved option is needed. |
 | Register a matching existing symlink | On | Creation can bring registrations into agreement without a separate adopt step. |
 | Replace a different symlink | Off; `-f` / `--force` | Existing references can be intentional. Both create and fix use the same rule. |
