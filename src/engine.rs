@@ -315,10 +315,7 @@ fn stable_path_key(path: &Path) -> String {
     paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
 }
 
-fn planned_link_in_path(
-    path: &Path,
-    indexes: &HashMap<String, usize>,
-) -> Option<(usize, PathBuf)> {
+fn planned_link_in_path(path: &Path, indexes: &HashMap<String, usize>) -> Option<(usize, PathBuf)> {
     let mut ancestors = path.ancestors().collect::<Vec<_>>();
     ancestors.reverse();
     ancestors.into_iter().find_map(|ancestor| {
@@ -372,12 +369,7 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
         dependencies[index] = projected_fix_dependencies(r, &links, &indexes, target)?;
     }
 
-    fn visit(
-        index: usize,
-        dependencies: &[Vec<usize>],
-        state: &mut [u8],
-        order: &mut Vec<usize>,
-    ) {
+    fn visit(index: usize, dependencies: &[Vec<usize>], state: &mut [u8], order: &mut Vec<usize>) {
         if state[index] == 2 {
             return;
         }
@@ -468,7 +460,8 @@ fn mutate_many(
             Err(error) => report.failure(&link, &error),
         }
         if !args.dry_run && transaction::load(r)?.is_some() {
-            eprintln!("! incomplete operation\n  remaining links were not processed; repeat the operation for the failed link to recover");
+            eprintln!("! incomplete operation\
+  remaining links were not processed; repeat the operation for the failed link to recover");
             break;
         }
     }
