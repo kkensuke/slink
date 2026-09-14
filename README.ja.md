@@ -29,9 +29,13 @@ slink --parents /Users/you/dotfiles/nvim /Users/you/.config/nvim
 これで `/Users/you/.config/nvim` というシンボリックリンクが作られ、`/Users/you/dotfiles/nvim` を指します。`--parents` は、リンクを置く親ディレクトリ `/Users/you/.config` がなければ作成します。すでに `/Users/you/.config/nvim` に通常のファイルやディレクトリがある場合は上書きしません。
 
 ```mermaid
-flowchart LR
-    L["/Users/you/.config/nvim\n管理するリンク"] == "target" ==> T["/Users/you/dotfiles/nvim\n参照先"]
-    R["links.toml\n管理ファイル"] -. "link / target を記録" .-> L
+flowchart TB
+    R["管理ファイル<br/>links.toml"]
+    L["管理するリンク<br/>/Users/you/.config/nvim"]
+    T["参照先<br/>/Users/you/dotfiles/nvim"]
+
+    R -. "link / target を記録" .-> L
+    L == "target" ==> T
 ```
 
 図の `links.toml` は既定のファイル名です。固定名ではなく、`--file` で任意の名前・場所を選べます。既定の場所は後述の[ファイルの選択](#ファイルの選択)を参照してください。
