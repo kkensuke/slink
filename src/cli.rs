@@ -160,7 +160,8 @@ impl Args {
             }
             _ => {}
         }
-        if a.output_format_set && !matches!(a.command, Command::List | Command::Check | Command::Scan)
+        if a.output_format_set
+            && !matches!(a.command, Command::List | Command::Check | Command::Scan)
         {
             bail!("--format is only valid for list/check/scan");
         }
