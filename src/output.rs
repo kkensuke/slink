@@ -67,21 +67,23 @@ pub fn check(
     if format == OutputFormat::Tsv {
         if let Some(p) = pending {
             eprintln!(
-                "PENDING: {:?} {:?} -> {:?}; repeat the original operation to recover",
-                p.op, p.link, p.entry.target
+                "PENDING: {:?} {} -> {:?}; repeat the original operation to recover",
+                p.op,
+                quoted_path(&p.link),
+                p.entry.target
             );
         }
-        outln!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET\tACTUAL_TARGET_STATE\tACTUAL_TARGET");
+        outln!("LINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE");
         for (link, target, diagnosis) in checked {
             let actual = diagnosis.actual();
             outln!(
                 "{}\t{}\t{}\t{}\t{}\t{}",
+                quoted_path(link),
                 diagnosis.link.code(),
-                diagnosis.expected_health.code(),
-                quoted(&link.to_string_lossy()),
                 quoted(target),
-                actual.map_or("", |(_, health)| health.code()),
+                diagnosis.expected_health.code(),
                 actual.map_or_else(String::new, |(target, _)| quoted(target)),
+                actual.map_or("", |(_, health)| health.code()),
             );
             print_diagnostic_reasons(link, diagnosis);
         }
@@ -127,11 +129,7 @@ fn print_diagnostic_reasons(link: &Path, diagnosis: &Diagnosis) {
         _ => None,
     };
     if let Some(reason) = link_reason {
-        eprintln!(
-            "ERROR\t{}\t{}",
-            quoted(&link.to_string_lossy()),
-            quoted(&reason)
-        );
+        eprintln!("ERROR\t{}\t{}", quoted_path(link), quoted(&reason));
     }
     for (label, health) in [
         ("expected target", Some(&diagnosis.expected_health)),
@@ -140,7 +138,7 @@ fn print_diagnostic_reasons(link: &Path, diagnosis: &Diagnosis) {
         if let Some(reason) = health.and_then(TargetHealth::reason) {
             eprintln!(
                 "ERROR\t{}\t{label}\t{}",
-                quoted(&link.to_string_lossy()),
+                quoted_path(link),
                 quoted(reason)
             );
         }
@@ -356,29 +354,29 @@ fn collect_scan(
 }
 
 fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
-    outln!("MANAGEMENT\tTARGET_STATE\tLINK\tTARGET\tLINK_STATE\tEXPECTED_TARGET_STATE\tEXPECTED_TARGET");
+    outln!("MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE");
     for entry in entries {
-        let (state, expected_health, expected_target) = match &entry.health {
+        let (link_state, target, target_state) = match &entry.health {
             ScanHealth::Managed {
                 expected,
                 diagnosis,
             } => (
                 diagnosis.link.code(),
-                diagnosis.expected_health.code(),
                 quoted(expected),
+                diagnosis.expected_health.code(),
             ),
-            ScanHealth::Unmanaged(_) => ("", "", String::new()),
+            ScanHealth::Unmanaged(_) => ("", String::new(), ""),
         };
         outln!(
-            "{}\t{}\t{}\t{}\t{state}\t{expected_health}\t{expected_target}",
+            "{}\t{}\t{link_state}\t{target}\t{target_state}\t{}\t{}",
             if entry.is_managed() {
                 "MANAGED"
             } else {
                 "UNMANAGED"
             },
+            quoted_path(&entry.link),
+            quoted(&entry.target),
             entry.actual_health().code(),
-            quoted(&entry.link.to_string_lossy()),
-            quoted(&entry.target)
         );
         match &entry.health {
             ScanHealth::Managed { diagnosis, .. } => {
@@ -386,11 +384,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
             }
             ScanHealth::Unmanaged(health) => {
                 if let Some(reason) = health.reason() {
-                    eprintln!(
-                        "ERROR\t{}\t{}",
-                        quoted(&entry.link.to_string_lossy()),
-                        quoted(reason)
-                    );
+                    eprintln!("ERROR\t{}\t{}", quoted_path(&entry.link), quoted(reason));
                 }
             }
         }
@@ -398,7 +392,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
     for error in errors {
         eprintln!(
             "ERROR\t{}\t{}",
-            quoted(&error.path.to_string_lossy()),
+            quoted_path(&error.path),
             quoted(&error.reason)
         );
     }
@@ -654,8 +648,17 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
     }
 }
 
+fn clean_display_path(p: &Path) -> PathBuf {
+    p.components().collect()
+}
+
+fn quoted_path(p: &Path) -> String {
+    let cleaned = clean_display_path(p);
+    quoted(cleaned.to_str().unwrap_or("<non-UTF-8>"))
+}
+
 pub fn display_link(p: &Path) -> String {
-    let cleaned = p.components().collect::<PathBuf>();
+    let cleaned = clean_display_path(p);
     let p = cleaned.as_path();
     let compact = paths::home().ok().and_then(|home| {
         if p == home {
