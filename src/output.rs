@@ -136,11 +136,7 @@ fn print_diagnostic_reasons(link: &Path, diagnosis: &Diagnosis) {
         ("actual target", diagnosis.actual_health.as_ref()),
     ] {
         if let Some(reason) = health.and_then(TargetHealth::reason) {
-            eprintln!(
-                "ERROR\t{}\t{label}\t{}",
-                quoted_path(link),
-                quoted(reason)
-            );
+            eprintln!("ERROR\t{}\t{label}\t{}", quoted_path(link), quoted(reason));
         }
     }
 }
@@ -354,7 +350,9 @@ fn collect_scan(
 }
 
 fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
-    outln!("MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE");
+    outln!(
+        "MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE"
+    );
     for entry in entries {
         let (link_state, target, target_state) = match &entry.health {
             ScanHealth::Managed {
