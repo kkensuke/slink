@@ -118,9 +118,10 @@ impl MutationOutput {
         let warning = problem.map_or(String::new(), |p| format!("; {p}"));
         outln!("{marker} {} — {label}{warning}", display_link(&result.link));
         outln!("  → {}", quoted(&result.target));
-        let parent = result.parent.as_ref().filter(|parent| {
-            !self.dry_run || self.projected_parents.insert((*parent).clone())
-        });
+        let parent = result
+            .parent
+            .as_ref()
+            .filter(|parent| !self.dry_run || self.projected_parents.insert((*parent).clone()));
         if let Some(parent) = parent {
             outln!(
                 "  parent: {} ({})",
