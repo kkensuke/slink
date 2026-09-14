@@ -86,19 +86,19 @@ impl Registry {
             bail!("registry version must be 1");
         }
         for (k, _) in doc.iter() {
-            if k != "version" && k != "links" {
+            if k != "version" && k != "link" {
                 bail!("unknown registry field {k:?}");
             }
         }
         let mut entries = vec![];
-        if let Some(links) = doc.get("links") {
-            for table in links
+        if let Some(link_tables) = doc.get("link") {
+            for table in link_tables
                 .as_array_of_tables()
-                .context("links must use [[links]] tables")?
+                .context("link must use [[link]] tables")?
             {
                 if table.len() != 2 || !table.contains_key("link") || !table.contains_key("target")
                 {
-                    bail!("each [[links]] needs exactly link and target");
+                    bail!("each [[link]] needs exactly link and target");
                 }
                 let link = table["link"]
                     .as_str()
@@ -210,13 +210,13 @@ impl Registry {
     }
     pub fn with_added(&self, entry: &Entry) -> DocumentMut {
         let mut doc = self.doc.clone();
-        if doc.get("links").is_none() {
-            doc["links"] = Item::ArrayOfTables(ArrayOfTables::new());
+        if doc.get("link").is_none() {
+            doc["link"] = Item::ArrayOfTables(ArrayOfTables::new());
         }
         let mut t = Table::new();
         t["link"] = value(&entry.link);
         t["target"] = value(&entry.target);
-        doc["links"]
+        doc["link"]
             .as_array_of_tables_mut()
             .expect("validated registry")
             .push(t);
@@ -224,12 +224,12 @@ impl Registry {
     }
     pub fn without(&self, index: usize) -> DocumentMut {
         let mut doc = self.doc.clone();
-        let arr = doc["links"]
+        let arr = doc["link"]
             .as_array_of_tables_mut()
             .expect("validated registry");
         arr.remove(index);
         if arr.is_empty() {
-            doc.remove("links");
+            doc.remove("link");
         }
         doc
     }
