@@ -33,11 +33,11 @@ write_registry() {
   cat >"$mount/links.toml" <<EOF
 version = 1
 
-[[links]]
+[[link]]
 link = "$mount/Alpha"
 target = "one"
 
-[[links]]
+[[link]]
 link = "$mount/alpha"
 target = "two"
 EOF
