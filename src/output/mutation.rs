@@ -59,6 +59,7 @@ pub struct MutationOutput {
     target_issues: usize,
     printed: bool,
     deferred: Vec<MutationResult>,
+    projected_parents: HashSet<PathBuf>,
 }
 
 impl MutationOutput {
@@ -72,6 +73,7 @@ impl MutationOutput {
             target_issues: 0,
             printed: false,
             deferred: Vec::new(),
+            projected_parents: HashSet::new(),
         }
     }
 
@@ -79,11 +81,18 @@ impl MutationOutput {
     // is advisory and does not turn a completed mutation into a failed one.
     // Fix output is deferred so health describes the final state, not a
     // transient state between dependent link mutations.
-    pub fn record(&mut self, result: MutationResult) {
+    pub fn record(&mut self, mut result: MutationResult) {
         if result.action == MutationAction::Unchanged {
             self.unchanged += 1;
         } else {
             self.changed += 1;
+        }
+        if self.fixing && self.dry_run {
+            if let Some(parent) = &result.parent {
+                if !self.projected_parents.insert(parent.clone()) {
+                    result.parent = None;
+                }
+            }
         }
         if self.fixing {
             self.deferred.push(result);
