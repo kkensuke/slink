@@ -25,15 +25,16 @@ pub fn run(args: Args) -> Result<u8> {
             outln!("slink {}", env!("CARGO_PKG_VERSION"));
             return Ok(0);
         }
+        Command::List => {
+            output::list(&Registry::read_entries()?, args.output_format);
+            return Ok(0);
+        }
         _ => {}
     }
     let mut r = Registry::open(matches!(
         args.command,
         Command::Create | Command::Adopt | Command::Scan
     ))?;
-    if args.command == Command::List {
-        return output::list(&r, args.output_format);
-    }
     if args.command == Command::Scan {
         return output::scan(&r, &args.operands, args.recursive, args.output_format);
     }

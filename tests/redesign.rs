@@ -16,7 +16,7 @@ fn cli_paths_use_cwd_and_expand_tilde_before_absolute_storage() {
     assert_eq!(f.target("home/link"), f.path("home/missing"));
     assert!(!f.registry().contains("/./"));
     let doc = f.registry().parse::<toml_edit::DocumentMut>().unwrap();
-    assert_eq!(doc["version"].as_integer(), Some(2));
+    assert!(doc.get("version").is_none());
     for entry in doc["link"].as_array_of_tables().unwrap() {
         assert!(Path::new(entry["link"].as_str().unwrap()).is_absolute());
         assert!(Path::new(entry["target"].as_str().unwrap()).is_absolute());
@@ -57,7 +57,7 @@ fn info_options_are_exclusive_and_obsolete_options_are_rejected() {
 }
 
 #[test]
-fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
+fn registry_rejects_relative_and_tilde_paths_in_both_fields() {
     let f = Fixture::new();
     for (field, value) in [
         ("link", "relative"),
@@ -75,9 +75,7 @@ fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
         } else {
             f.path("source").to_str().unwrap().to_string()
         };
-        f.write_registry(&format!(
-            "version = 2\n[[link]]\nlink = {link:?}\ntarget = {target:?}\n"
-        ));
+        f.write_registry(&format!("[[link]]\nlink = {link:?}\ntarget = {target:?}\n"));
         let before = f.registry();
         let output = f.run(&["fix"]);
         assert_eq!(output.status.code(), Some(2));
@@ -93,7 +91,7 @@ fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
 fn registry_path_errors_do_not_guess_from_the_working_directory() {
     let f = Fixture::new();
     f.write_registry(&format!(
-        "version = 2\n[[link]]\nlink = {:?}\ntarget = 'PhD'\n",
+        "[[link]]\nlink = {:?}\ntarget = 'PhD'\n",
         f.path("link")
     ));
     let first = f.run(&["check"]);

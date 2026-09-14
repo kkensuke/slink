@@ -27,6 +27,19 @@ pub struct Registry {
 
 impl Registry {
     pub fn open(allow_missing: bool) -> Result<Self> {
+        let registry = Self::read(allow_missing)?;
+        let requested = registry.requested.clone();
+        registry
+            .validated()
+            .with_context(|| format!("invalid registry {requested:?}"))
+    }
+
+    // Listing needs stored strings, not paths that are safe to act on.
+    pub fn read_entries() -> Result<Vec<Entry>> {
+        Ok(Self::read(false)?.entries)
+    }
+
+    fn read(allow_missing: bool) -> Result<Self> {
         let requested = paths::default_registry_path()?;
         let path = match fs::symlink_metadata(&requested) {
             Ok(_) => {
@@ -57,72 +70,82 @@ impl Registry {
             }
             Err(e) => return Err(e).with_context(|| format!("cannot read registry {requested:?}")),
         };
-        Self::parse(requested, path, original)
+        Self::parse(requested.clone(), path, original)
+            .with_context(|| format!("invalid registry {requested:?}"))
     }
     fn parse(requested: PathBuf, path: PathBuf, original: Option<Vec<u8>>) -> Result<Self> {
         let doc = match &original {
             Some(b) => std::str::from_utf8(b)?
                 .parse::<DocumentMut>()
                 .context("invalid TOML")?,
-            None => {
-                let mut d = DocumentMut::new();
-                d["version"] = value(2);
-                d
-            }
+            None => DocumentMut::new(),
         };
-        if doc.get("version").and_then(Item::as_integer) != Some(2) {
-            bail!("registry version must be 2");
-        }
         for (k, _) in doc.iter() {
-            if k != "version" && k != "link" {
+            if k != "link" {
                 bail!("unknown registry field {k:?}");
             }
         }
         let mut entries = vec![];
         if let Some(link_tables) = doc.get("link") {
-            for table in link_tables
+            for (index, table) in link_tables
                 .as_array_of_tables()
                 .context("link must use [[link]] tables")?
+                .iter()
+                .enumerate()
             {
-                if table.len() != 2 || !table.contains_key("link") || !table.contains_key("target")
-                {
-                    bail!("each [[link]] needs exactly link and target");
-                }
-                let link = table["link"]
-                    .as_str()
-                    .context("link must be a string")?
-                    .to_owned();
-                let target = table["target"]
-                    .as_str()
-                    .context("target must be a string")?
-                    .to_owned();
-                paths::validate_link(&link)?;
-                let link = paths::text(&paths::registry_path(&link, "link")?)?.to_owned();
-                let target = paths::text(&paths::registry_path(&target, "target")?)?.to_owned();
-                entries.push(Entry { link, target });
+                let entry = (|| {
+                    if table.len() != 2
+                        || !table.contains_key("link")
+                        || !table.contains_key("target")
+                    {
+                        bail!("each [[link]] needs exactly link and target");
+                    }
+                    let link = table["link"]
+                        .as_str()
+                        .context("link must be a string")?
+                        .to_owned();
+                    let target = table["target"]
+                        .as_str()
+                        .context("target must be a string")?
+                        .to_owned();
+                    Ok(Entry { link, target })
+                })()
+                .with_context(|| format!("[[link]] entry {}", index + 1))?;
+                entries.push(entry);
             }
         }
-        let r = Self {
+        Ok(Self {
             requested,
             path,
             original,
             doc,
             entries,
-        };
+        })
+    }
+
+    fn validated(mut self) -> Result<Self> {
         let mut seen_paths = HashSet::new();
         let mut seen_keys = HashSet::new();
-        for e in &r.entries {
-            let link = r.link(e)?;
-            if !seen_paths.insert(link.clone()) {
-                bail!("duplicate link: {:?}", e.link);
-            }
-            if let Ok(key) = paths::key(&link) {
-                if !seen_keys.insert(key) {
-                    bail!("duplicate link: {:?}", e.link);
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            (|| {
+                paths::validate_link(&entry.link)?;
+                let link = paths::registry_path(&entry.link, "link")?;
+                entry.link = paths::text(&link)?.to_owned();
+                entry.target =
+                    paths::text(&paths::registry_path(&entry.target, "target")?)?.to_owned();
+                if !seen_paths.insert(link.clone()) {
+                    bail!("duplicate link: {:?}", entry.link);
                 }
-            }
+                if let Ok(key) = paths::key(&link) {
+                    if !seen_keys.insert(key) {
+                        bail!("duplicate link: {:?}", entry.link);
+                    }
+                }
+                Ok(())
+            })()
+            .with_context(|| format!("[[link]] entry {}", index + 1))?;
         }
-        Ok(r)
+        Ok(self)
     }
     pub fn link(&self, entry: &Entry) -> Result<PathBuf> {
         paths::registry_path(&entry.link, "link")
@@ -264,7 +287,8 @@ impl Registry {
             self.requested.clone(),
             self.path.clone(),
             Some(bytes.to_vec()),
-        )?;
+        )?
+        .validated()?;
         Ok(())
     }
 }
