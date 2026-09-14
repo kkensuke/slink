@@ -325,8 +325,9 @@ fn scan_is_read_only_and_does_not_follow_directory_links() {
         .unwrap();
     assert_eq!(o.status.code(), Some(0));
     let out = String::from_utf8(o.stdout).unwrap();
-    assert_eq!(out.lines().count(), 3);
-    assert!(out.contains("UNMANAGED"));
+    assert!(out.contains("Unmanaged (2)"));
+    assert!(out.contains("target is missing"));
+    assert!(out.contains("2 symlinks found: 0 managed, 2 unmanaged, 1 link issue"));
     assert!(!f.path("config").exists());
 }
 
@@ -355,7 +356,7 @@ fn reserved_names_and_control_characters_are_literal_after_separator() {
     assert_eq!(f.target("a\nlink"), Path::new("list"));
     let out = String::from_utf8(f.ok(&["list"]).stdout).unwrap();
     assert!(out.contains("a\\nlink"));
-    assert_eq!(out.lines().count(), 2);
+    assert!(out.contains("  → list"));
 }
 
 #[test]
