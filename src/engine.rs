@@ -14,15 +14,15 @@ use std::{
 pub fn run(args: Args) -> Result<u8> {
     match args.command {
         Command::Config => {
-            println!("{}", paths::text(&paths::default_registry_path()?)?);
+            outln!("{}", paths::text(&paths::default_registry_path()?)?);
             return Ok(0);
         }
         Command::Help => {
-            print!("{HELP}");
+            out!("{HELP}");
             return Ok(0);
         }
         Command::Version => {
-            println!("slink {}", env!("CARGO_PKG_VERSION"));
+            outln!("slink {}", env!("CARGO_PKG_VERSION"));
             return Ok(0);
         }
         _ => {}
@@ -72,11 +72,11 @@ pub fn run(args: Args) -> Result<u8> {
         }
         if args.dry_run {
             transaction::preview(&mut r, &p)?;
-            println!("WOULD_RECOVER\t{:?}\t{:?}", p.op, p.link);
+            outln!("WOULD_RECOVER\t{:?}\t{:?}", p.op, p.link);
         } else {
             transaction::finish(&mut r, &p)
                 .context("recovery stopped; pending operation retained")?;
-            println!("RECOVERED\t{:?}", p.link);
+            outln!("RECOVERED\t{:?}", p.link);
         }
         if args.command != Command::Remove {
             output::warn_target(&p.link, &p.entry.target);
@@ -187,12 +187,12 @@ impl Plan {
         };
         let prefix = if args.dry_run { "WOULD_" } else { "" };
         if self.mkdir {
-            println!(
+            outln!(
                 "{prefix}MKDIR\t{:?}",
                 self.link.parent().context("link parent")?
             );
         }
-        println!("{prefix}{action}\t{:?}\t{:?}", self.link, self.entry.target);
+        outln!("{prefix}{action}\t{:?}\t{:?}", self.link, self.entry.target);
         if args.dry_run {
             r.preview_bytes(self.after.as_bytes())?;
         } else {

@@ -174,3 +174,53 @@ fn scan_returns_one_when_actual_or_registered_targets_cannot_be_inspected() {
         .unwrap()
         .contains("Permission denied"));
 }
+
+#[test]
+fn closed_stdout_pipe_does_not_panic_or_change_the_operation_status() {
+    use std::{
+        io::{BufRead, BufReader},
+        process::Stdio,
+    };
+    let f = Fixture::new();
+    let names = (0..256).map(|i| format!("link-{i}")).collect::<Vec<_>>();
+    let target = "x".repeat(1024);
+    let entries = names
+        .iter()
+        .map(|name| (name.as_str(), target.as_str()))
+        .collect::<Vec<_>>();
+    f.write_entries(&entries);
+    let mut child = f
+        .command(&["list"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert_eq!(line, "256 links\n");
+    drop(reader);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn other_stdout_errors_remain_failures() {
+    use std::process::Stdio;
+    let f = Fixture::new();
+    let sink = fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .unwrap();
+    let output = f
+        .command(&["--config"])
+        .stdout(Stdio::from(sink))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("cannot write stdout"));
+    assert!(!error.contains("panicked"));
+}
