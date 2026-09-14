@@ -84,6 +84,20 @@ fn dry_run_resolves_suffix_through_a_projected_managed_link() {
 }
 
 #[test]
+fn dry_run_reports_a_shared_missing_parent_once() {
+    let f = Fixture::new();
+    f.write("source", "ok");
+    f.write_entries(&[("shared/a", "source"), ("shared/b", "source")]);
+
+    let output = f.ok(&["fix", "-n", "-p"]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert_eq!(stdout.matches("parent: ").count(), 1, "stdout={stdout:?}");
+    assert!(stdout.contains("(would create)"));
+    assert!(!f.path("shared").exists());
+}
+
+#[test]
 fn fix_orders_a_managed_path_dependency_before_its_dependent() {
     let f = Fixture::new();
     fs::create_dir_all(f.path("source-dir")).unwrap();

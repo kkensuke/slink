@@ -61,7 +61,7 @@ slink scan [options] [directory ...]
 | --- | --- |
 | `slink <target> <link>` | Make the link and registry agree with the CLI arguments |
 | `slink --config` | Print the registry path without creating a file or directory |
-| `slink list` | Display the stored link and target strings without path validation or filesystem inspection |
+| `slink list` | Display registry entries without path validation or filesystem inspection; human output may shorten link locations for display |
 | `slink check [link ...]` | Validate registry paths, compare registered and actual references, and check target availability |
 | `slink fix [link ...]` | Restore links from the registry; changing an existing different symlink requires `-f` |
 | `slink remove <link ...>` | Delete matching registered links and unregister them; never delete their targets |
@@ -145,7 +145,7 @@ code "$(slink --config)"
 
 One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. An empty file represents no registrations.
 
-`list` displays entries in file order, including invalid paths and duplicate registrations. For example, if you hand-edit `links.toml` and enter `target = "mytarget"`, the entry remains visible even though this target is invalid because it is not an absolute path. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links and reject such values. Path errors identify the registry file, entry number, and invalid field.
+`list` displays entries in file order, including invalid paths and duplicate registrations. It does not validate paths or inspect the filesystem. TSV output emits the stored `link` and `target` strings verbatim. Human output keeps the stored target string but may abbreviate a link under the home directory as `~/…` and remove redundant `.` components from the displayed link location. For example, if you hand-edit `links.toml` and enter `target = "mytarget"`, the entry remains visible even though this target is invalid because it is not an absolute path. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links and reject such values. Path errors identify the registry file, entry number, and invalid field.
 
 All commands that read registrations, including `list`, require valid TOML and the entry structure above. A syntax error, missing field, non-string value, or unknown field prevents the file from being read; no partial list is printed.
 
@@ -207,7 +207,9 @@ Human output groups scan results into managed and unmanaged links, with problems
 
 Creation, adoption, removal, fix, and recovery show a link's location, an action such as `created`, `registered`, `removed`, or `unchanged`, and the registered target on the next line. Parent directory creation appears as an additional detail. Completion is reported after the operation succeeds.
 
-`fix` displays changed links and links with target problems, and summarizes healthy unchanged links by count. For example, restoring one missing link while leaving 22 healthy links unchanged produces:
+`fix` displays changed links and links with target problems, and summarizes healthy unchanged links by count. When several selected links depend on one another, their registry order does not define the mutation semantics: dependencies are processed first where possible. Target warnings are evaluated after the selected fix batch, so a target that is temporarily missing only because another selected link has not yet been restored does not produce a transient warning. Explicit operands still define the selected set; `fix` does not silently add an unselected dependency.
+
+For example, restoring one missing link while leaving 22 healthy links unchanged produces:
 
 ```text
 ✓ ~/links/example.txt — created
@@ -224,6 +226,8 @@ Running `slink fix -n` previews the same operation:
 
 1 change planned, 22 unchanged
 ```
+
+For target-health reporting, `fix -n` evaluates the projected final state rather than the unchanged current filesystem. Planned managed links are followed even when they occur inside a target path, so a target such as `A/child` can be evaluated as if the planned `A` link had already been restored.
 
 `✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or failure. A target problem is shown even when the link is unchanged. Recoveries use labels such as `recovered creation` and `would recover creation`.
 

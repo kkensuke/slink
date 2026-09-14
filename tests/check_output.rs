@@ -54,7 +54,11 @@ fn check_reports_a_missing_target_without_repeating_internal_states() {
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("— target is missing\n  target: \"missing\"\n"));
+    assert!(stdout.contains(&format!(
+        "— target is missing\n  target: {:?}\n",
+        f.path("missing")
+    )));
+    assert!(!stdout.contains("  actual:"));
     assert!(!stdout.contains("MATCH"));
     assert!(!stdout.contains("MISSING\t"));
 }
@@ -83,7 +87,7 @@ fn check_reports_resolution_errors_with_the_os_reason() {
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("— target cannot be resolved\n"));
-    assert!(stdout.contains("  target: \"link\"\n"));
+    assert!(stdout.contains(&format!("  target: {:?}\n", f.path("link"))));
     assert!(stdout.contains("  reason: "));
     assert!(!stdout.contains("RESOLUTION_ERROR"));
 }
@@ -202,11 +206,7 @@ fn target_output_preserves_spaces_and_escapes_all_terminal_controls() {
         };
         assert_eq!(
             serde_json::from_str::<String>(value).unwrap(),
-            if args[0] == "scan" {
-                target.to_owned()
-            } else {
-                f.path(target).to_str().unwrap().to_owned()
-            }
+            f.path(target).to_str().unwrap()
         );
     }
 }

@@ -353,6 +353,8 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
     outln!(
         "MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE"
     );
+    let mut entries = entries.iter().collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.link.cmp(&b.link));
     for entry in entries {
         let (link_state, target, target_state) = match &entry.health {
             ScanHealth::Managed {
@@ -576,16 +578,12 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
     let link = display_link(p);
     let mut lines = Vec::new();
     match &diagnosis.link {
-        LinkState::Match(actual) => {
-            let (expected, health) = if let Some(health) = diagnosis
+        LinkState::Match(_) => {
+            let health = diagnosis
                 .actual_health
                 .as_ref()
                 .filter(|h| !h.is_reachable())
-            {
-                (actual.as_str(), health)
-            } else {
-                (expected, &diagnosis.expected_health)
-            };
+                .unwrap_or(&diagnosis.expected_health);
             match health {
                 TargetHealth::Reachable => {}
                 TargetHealth::Missing => {
