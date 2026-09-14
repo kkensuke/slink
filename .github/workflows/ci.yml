@@ -22,6 +22,9 @@ jobs:
         run: cargo +stable clippy --locked --all-targets -- -D warnings
       - name: Tests
         run: cargo +stable test --locked
+      - name: APFS case modes
+        if: runner.os == 'macOS'
+        run: bash tests/apfs_case_modes.sh
       - name: Release build
         run: cargo +stable build --locked --release
       - uses: actions/upload-artifact@v7
