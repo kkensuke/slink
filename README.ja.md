@@ -45,7 +45,7 @@ flowchart TB
 ```toml
 version = 1
 
-[[links]]
+[[link]]
 link = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
@@ -64,6 +64,7 @@ slink fix --dry-run
 
 ```sh
 slink <target> <link>
+slink config
 slink list
 slink check [link ...]
 slink fix [--parents] [--replace] [link ...]
@@ -75,6 +76,7 @@ slink scan <directory ...>
 | コマンド | 役割 |
 | --- | --- |
 | `slink <target> <link>` | シンボリックリンクを作り、`link` / `target` を管理ファイルに追加する |
+| `slink config` | 既定の管理ファイルのパスだけをstdoutへ表示する。ファイルは作成しない |
 | `slink list` | 実際のリンクを検査せず、登録内容を表示する |
 | `slink check [link ...]` | 登録されたリンクが保存済みtargetと一致するか、targetへ到達できるかを検査する |
 | `slink fix [link ...]` | 欠落したリンクを復元する。不一致のリンクを置き換えるには `--replace` が必要 |
@@ -153,6 +155,8 @@ slink --relative --parents dotfiles/nvim run/nvim
 
 `XDG_CONFIG_HOME` に `/Users/you/config` のような絶対パスが設定されている場合、既定の管理ファイルは `$XDG_CONFIG_HOME/slink/links.toml` です。未設定、空、または `config` や `./config` のような相対パスの場合は `~/.config/slink/links.toml` を使います。ここでいう「相対」は環境変数の値についてであり、`--relative` とは無関係です。
 
+`slink config` は、この既定の管理ファイルのパスをstdoutへ1行だけ表示します。ファイルや親ディレクトリは作りません。たとえば `code "$(slink config)"` のように、別のコマンドへそのまま渡せます。
+
 `--file` は別の管理ファイルを1つだけ選択します。複数ファイルの結合や自動探索はしません。相対 `--file` はカレントディレクトリ基準です。
 
 ```sh
@@ -171,7 +175,7 @@ CLIで作成または `adopt` すると、管理ファイルの `link` は絶対
 ```toml
 version = 1
 
-[[links]]
+[[link]]
 link = "../run/nvim"
 target = "../dotfiles/nvim"
 ```
@@ -195,7 +199,7 @@ TOMLはシェルで評価されません。管理ファイルの `link` が `~/`
 
 ### 項目を手で編集する
 
-1つの登録項目は、`link` と `target` を含む完全な `[[links]]` ブロックです。
+1つの登録項目は、`link` と `target` を含む完全な `[[link]]` ブロックです。
 
 | 手編集 | 効果 |
 | --- | --- |
