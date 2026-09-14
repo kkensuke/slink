@@ -16,7 +16,7 @@ fn cli_paths_use_cwd_and_expand_tilde_before_absolute_storage() {
     assert_eq!(f.target("home/link"), f.path("home/missing"));
     assert!(!f.registry().contains("/./"));
     let doc = f.registry().parse::<toml_edit::DocumentMut>().unwrap();
-    assert_eq!(doc["version"].as_integer(), Some(2));
+    assert!(doc.get("version").is_none());
     for entry in doc["link"].as_array_of_tables().unwrap() {
         assert!(Path::new(entry["link"].as_str().unwrap()).is_absolute());
         assert!(Path::new(entry["target"].as_str().unwrap()).is_absolute());
@@ -57,7 +57,7 @@ fn info_options_are_exclusive_and_obsolete_options_are_rejected() {
 }
 
 #[test]
-fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
+fn registry_rejects_relative_and_tilde_paths_in_both_fields() {
     let f = Fixture::new();
     for (field, value) in [
         ("link", "relative"),
@@ -75,9 +75,7 @@ fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
         } else {
             f.path("source").to_str().unwrap().to_string()
         };
-        f.write_registry(&format!(
-            "version = 2\n[[link]]\nlink = {link:?}\ntarget = {target:?}\n"
-        ));
+        f.write_registry(&format!("[[link]]\nlink = {link:?}\ntarget = {target:?}\n"));
         let before = f.registry();
         let output = f.run(&["fix"]);
         assert_eq!(output.status.code(), Some(2));
@@ -87,6 +85,28 @@ fn registry_v2_rejects_relative_and_tilde_paths_in_both_fields() {
     }
     f.write_registry("version = 1\n");
     assert_eq!(f.run(&["list"]).status.code(), Some(2));
+}
+
+#[test]
+fn registry_path_errors_do_not_guess_from_the_working_directory() {
+    let f = Fixture::new();
+    f.write_registry(&format!(
+        "[[link]]\nlink = {:?}\ntarget = 'PhD'\n",
+        f.path("link")
+    ));
+    let first = f.run(&["check"]);
+    let second = f
+        .command(&["check"])
+        .current_dir(f.path("home"))
+        .output()
+        .unwrap();
+    assert_eq!(first.status.code(), Some(2));
+    assert_eq!(second.status.code(), Some(2));
+    assert_eq!(first.stderr, second.stderr);
+    let error = String::from_utf8(first.stderr).unwrap();
+    assert!(error.contains("registry target must be an absolute path: \"PhD\""));
+    assert!(!error.contains("working directory"));
+    assert!(!error.contains(f.path("PhD").to_str().unwrap()));
 }
 
 #[test]

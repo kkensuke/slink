@@ -2,7 +2,7 @@ use crate::{
     cli::OutputFormat,
     inspect::{self, Diagnosis, LinkState, TargetHealth},
     paths,
-    registry::Registry,
+    registry::{Entry, Registry},
     transaction::Pending,
 };
 use anyhow::Result;
@@ -38,23 +38,22 @@ pub fn finish_stdout() -> Result<()> {
     Ok(())
 }
 
-pub fn list(r: &Registry, format: OutputFormat) -> Result<u8> {
+pub fn list(entries: &[Entry], format: OutputFormat) {
     if format == OutputFormat::Tsv {
         outln!("LINK\tTARGET");
-        for entry in &r.entries {
+        for entry in entries {
             outln!("{}\t{}", quoted(&entry.link), quoted(&entry.target));
         }
-        return Ok(0);
+        return;
     }
 
-    let count = r.entries.len();
+    let count = entries.len();
     outln!("{count} {}", plural(count, "link", "links"));
-    for entry in &r.entries {
+    for entry in entries {
         outln!();
-        outln!("{}", display_link(&r.link(entry)?));
+        outln!("{}", display_link(Path::new(&entry.link)));
         outln!("  → {}", quoted(&entry.target));
     }
-    Ok(0)
 }
 
 pub fn check(

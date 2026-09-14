@@ -152,7 +152,7 @@ fn missing_link_and_parent_restore_are_separate() {
 fn removing_records_manually_does_not_prune_links() {
     let f = Fixture::new();
     f.ok(&["future", "link"]);
-    f.write("config/slink/links.toml", "version = 2\n");
+    f.write("config/slink/links.toml", "");
     f.ok(&["fix"]);
     assert_eq!(f.target("link"), f.path("future"));
     assert_eq!(f.run(&["remove", "link"]).status.code(), Some(2));
@@ -190,7 +190,12 @@ fn multiple_removals_do_not_delete_targets() {
 fn comments_quotes_order_and_crlf_survive_registration() {
     for newline in ["\n", "\r\n"] {
         let f = Fixture::new();
-        let original = format!("# intro\nversion = 2\n\n# first link\n[[link]]\nlink = '{}' # location\ntarget   = '{}'\n", f.path("one").display(), f.path("source").display()).replace('\n', newline);
+        let original = format!(
+            "# intro\n\n# first link\n[[link]]\nlink = '{}' # location\ntarget   = '{}'\n",
+            f.path("one").display(),
+            f.path("source").display()
+        )
+        .replace('\n', newline);
         f.write("config/slink/links.toml", &original);
         symlink("future", f.path("two")).unwrap();
         f.ok(&["adopt", "two"]);
@@ -210,7 +215,7 @@ fn registry_symlink_is_preserved_with_absolute_entries() {
     f.write(
         "store/real.toml",
         &format!(
-            "version = 2\n[[link]]\nlink = {:?}\ntarget = {:?}\n",
+            "[[link]]\nlink = {:?}\ntarget = {:?}\n",
             f.path("one"),
             f.path("source")
         ),
@@ -235,7 +240,7 @@ fn list_does_not_inspect_managed_paths() {
     f.write(
         "config/slink/links.toml",
         &format!(
-            "version = 2\n[[link]]\nlink = {:?}\ntarget = {:?}\n",
+            "[[link]]\nlink = {:?}\ntarget = {:?}\n",
             f.path("missing/../link"),
             f.path("source")
         ),
@@ -271,10 +276,10 @@ fn invalid_registry_does_not_touch_files() {
     f.write("link", "keep");
     for text in [
         "version = 1\n",
-        "version = 2\nunknown = true\n",
-        "version = 2\n[[links]]\nlink = 'x'\ntarget = 'y'\n",
-        "version = 2\n[[link]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",
-        "version = 2\n[[link]]\nlink = 'x'\ntarget = 'y'\n[[link]]\nlink = 'x'\ntarget = 'z'\n",
+        "unknown = true\n",
+        "[[links]]\nlink = 'x'\ntarget = 'y'\n",
+        "[[link]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",
+        "[[link]]\nlink = 'x'\ntarget = 'y'\n[[link]]\nlink = 'x'\ntarget = 'z'\n",
     ] {
         f.write("config/slink/links.toml", text);
         assert_eq!(f.run(&["fix", "--force"]).status.code(), Some(2));
@@ -350,9 +355,9 @@ fn replacement_requires_same_authorization_during_recovery() {
 fn concurrent_manifest_edit_stops_recovery() {
     let f = Fixture::new();
     f.crash(&["future", "link"], "linked");
-    f.write("config/slink/links.toml", "# user edit\nversion = 2\n");
+    f.write("config/slink/links.toml", "# user edit\n");
     assert_ne!(f.run(&["future", "link"]).status.code(), Some(0));
-    assert_eq!(f.registry(), "# user edit\nversion = 2\n");
+    assert_eq!(f.registry(), "# user edit\n");
     assert_eq!(f.target("link"), f.path("future"));
     assert!(f.path("config/slink/links.toml.slink-pending").exists());
 }
@@ -387,13 +392,13 @@ fn filesystem_case_and_unicode_aliases_do_not_duplicate_registrations() {
 fn recovery_dry_run_rejects_registry_edits_without_writing() {
     let f = Fixture::new();
     f.crash(&["future", "link"], "linked");
-    f.write("config/slink/links.toml", "# user edit\nversion = 2\n");
+    f.write("config/slink/links.toml", "# user edit\n");
     let pending = fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap();
     assert_eq!(
         f.run(&["--dry-run", "future", "link"]).status.code(),
         Some(2)
     );
-    assert_eq!(f.registry(), "# user edit\nversion = 2\n");
+    assert_eq!(f.registry(), "# user edit\n");
     assert_eq!(f.target("link"), f.path("future"));
     assert_eq!(
         fs::read(f.path("config/slink/links.toml.slink-pending")).unwrap(),
@@ -497,13 +502,13 @@ fn registry_and_its_control_paths_cannot_be_managed_links() {
         Some(1)
     );
     assert!(!f.path("config/slink/links.toml.slink-pending").exists());
-    f.write("manifest", "version = 2\n");
+    f.write("manifest", "");
     symlink(f.path("manifest"), f.path("config/slink/links.toml")).unwrap();
     assert_eq!(
         f.run(&["adopt", "config/slink/links.toml"]).status.code(),
         Some(1)
     );
-    assert_eq!(f.registry(), "version = 2\n");
+    assert_eq!(f.registry(), "");
     assert_eq!(f.target("config/slink/links.toml"), f.path("manifest"));
 }
 

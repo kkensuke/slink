@@ -56,7 +56,7 @@ fn scan_groups_managed_and_unmanaged_and_puts_issues_first() {
 #[test]
 fn scan_reports_traversal_errors_separately_and_returns_one() {
     let f = Fixture::new();
-    f.write_registry("version = 2\n");
+    f.write_registry("");
     fs::write(f.root.join("not-a-directory"), "x").unwrap();
 
     let output = f.run(&["scan", "not-a-directory"]);
@@ -70,7 +70,7 @@ fn scan_reports_traversal_errors_separately_and_returns_one() {
 #[test]
 fn scan_rejects_symlink_roots_with_or_without_trailing_separators() {
     let f = Fixture::new();
-    f.write_registry("version = 2\n");
+    f.write_registry("");
     fs::create_dir(f.root.join("outside")).unwrap();
     symlink("missing", f.root.join("outside/item")).unwrap();
     symlink("outside", f.root.join("alias")).unwrap();

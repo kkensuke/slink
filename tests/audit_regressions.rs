@@ -41,7 +41,8 @@ fn registry_rejects_duplicate_destinations_through_parent_aliases() {
     symlink("real", f.root.join("alias")).unwrap();
     f.write_entries(&[("real/link", "one"), ("alias/link", "two")]);
 
-    let output = f.command(&["list"]).output().unwrap();
+    f.ok(&["list"]);
+    let output = f.command(&["check"]).output().unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8(output.stderr)
         .unwrap()

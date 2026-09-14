@@ -68,7 +68,6 @@ impl Fixture {
     }
     pub fn write_entries(&self, entries: &[(&str, &str)]) {
         let mut doc = toml_edit::DocumentMut::new();
-        doc["version"] = toml_edit::value(2);
         let mut tables = toml_edit::ArrayOfTables::new();
         for (link, target) in entries {
             let mut table = toml_edit::Table::new();
