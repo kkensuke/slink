@@ -84,6 +84,7 @@ fn scan_groups_managed_and_unmanaged_and_puts_issues_first() {
 #[test]
 fn scan_reports_traversal_errors_separately_and_returns_one() {
     let f = Fixture::new();
+    fs::write(f.root.join("links.toml"), "version = 1\n").unwrap();
     fs::write(f.root.join("not-a-directory"), "x").unwrap();
 
     let output = f.run(&["scan", "not-a-directory"]);
