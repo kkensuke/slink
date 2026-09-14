@@ -7,14 +7,6 @@ targets in a hand-editable TOML file, then inspect, restore, or remove them.
 
 With a current stable Rust toolchain:
 
-While the initial PR is open, install its branch:
-
-```sh
-cargo install --git https://github.com/kkensuke/slink.git --branch feat/slink-cli --locked
-```
-
-After it is merged, install from the repository's default branch:
-
 ```sh
 git clone https://github.com/kkensuke/slink.git
 cd slink
@@ -60,6 +52,12 @@ slink -- list ./list-link
 slink check -- ./list-link
 ```
 
+`slink -- list ./list-link` creates `./list-link` with the literal target `list`;
+`list` is a path here, not the list command. `--` ends option parsing and makes
+the remaining arguments literal paths. `slink check -- ./list-link` checks only
+that registered link. In this second example, `--` is optional: it has the same
+effect as `slink check ./list-link`.
+
 ## Registry
 
 The default is `$XDG_CONFIG_HOME/slink/links.toml`, falling back to
@@ -98,7 +96,10 @@ symlink is retained. The selected registry location still determines relative
 
 - Adding an entry lets `fix` create its missing link.
 - Editing a target requires `fix --replace` to change an existing mismatched link.
-- Removing an entry only unregisters it; its symlink remains.
+- Deleting a complete `[[links]]` entry from the TOML file leaves the actual
+  symlink in place. The link is no longer listed, checked, or fixed by that file.
+  To delete the symlink as well, use `slink remove <link>` while it is still
+  registered. The file or directory it points to is preserved.
 - Editing a link location unregisters the old location, whose symlink remains.
 
 ## Explicit options and defaults
@@ -110,7 +111,8 @@ This conversion preserves target-side symlinks and meaningful `..` components.
 
 `--parents` creates missing **link parent directories**, never target directories.
 Removing links does not remove their parents. No `relative` or `parents` settings
-are duplicated in the registry; the stored target already captures the result.
+are stored in the registry. `--relative` determines the target text to store;
+`--parents` applies only to the current command.
 
 `--dry-run` works for create, fix, remove, and adopt, and makes no writes, including
 lock files, recovery records, or parent directories. `--keep-link` only works with
