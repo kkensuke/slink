@@ -14,7 +14,7 @@ fn config_prints_only_the_default_registry_path() {
     let output = slink()
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", &xdg)
-        .arg("config")
+        .arg("--config")
         .output()
         .unwrap();
 
@@ -34,7 +34,7 @@ fn config_falls_back_to_home_for_unset_empty_or_relative_xdg() {
         let home = dir.path().join("home");
         fs::create_dir(&home).unwrap();
         let mut command = slink();
-        command.env("HOME", &home).arg("config");
+        command.env("HOME", &home).arg("--config");
         match xdg {
             Some(value) => {
                 command.env("XDG_CONFIG_HOME", value);
@@ -55,49 +55,4 @@ fn config_falls_back_to_home_for_unset_empty_or_relative_xdg() {
             "xdg={xdg:?}"
         );
     }
-}
-
-#[test]
-fn config_rejects_operands_and_options() {
-    for args in [
-        &["config", "extra"][..],
-        &["config", "--file", "other.toml"],
-    ] {
-        assert_eq!(slink().args(args).status().unwrap().code(), Some(2));
-    }
-}
-
-#[test]
-fn config_rejects_options_in_either_position_without_creating_links() {
-    let dir = tempfile::tempdir().unwrap();
-    for args in [
-        vec!["--file", "registry.toml", "config", "new-link"],
-        vec!["config", "--file", "registry.toml", "new-link"],
-        vec!["--parents", "config", "new-link"],
-        vec!["--dry-run", "config"],
-        vec!["config", "--format=human"],
-    ] {
-        let output = slink()
-            .current_dir(dir.path())
-            .args(&args)
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(2), "args={args:?}");
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
-    }
-}
-
-#[test]
-fn config_is_a_literal_target_after_separator() {
-    let dir = tempfile::tempdir().unwrap();
-    let output = slink()
-        .current_dir(dir.path())
-        .args(["--file", "registry.toml", "--", "config", "new-link"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert_eq!(
-        fs::read_link(dir.path().join("new-link")).unwrap(),
-        PathBuf::from("config")
-    );
 }

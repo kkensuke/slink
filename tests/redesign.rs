@@ -248,3 +248,12 @@ fn force_recovery_keeps_command_authority_and_finishes_each_stage() {
             .exists());
     }
 }
+
+#[test]
+fn unregister_does_not_require_an_inspectable_link_parent() {
+    let f = Fixture::new();
+    f.write_entries(&[("missing/../link", "source")]);
+    f.ok(&["remove", "-k", "missing/../link"]);
+    assert_eq!(f.entries(), 0);
+    assert!(!f.path("missing").exists());
+}

@@ -50,6 +50,10 @@ pub fn run(args: Args) -> Result<u8> {
         return Ok(u8::from(failed));
     }
     let _lock = if args.dry_run { None } else { Some(r.lock()?) };
+    // A preview advances only the in-memory registry; verify its disk snapshot once.
+    if args.dry_run {
+        r.verify()?;
+    }
     let mut recovered = None;
     if let Some(p) = transaction::load(&r)? {
         let same_request = p.request == Request::from(&args);
@@ -143,7 +147,9 @@ struct Plan {
 
 impl Plan {
     fn apply(self, r: &mut Registry, args: &Args) -> Result<()> {
-        r.verify()?;
+        if !args.dry_run {
+            r.verify()?;
+        }
         let registry_changes = r.original.as_deref() != Some(self.after.as_bytes());
         let action = match &self.change {
             Change::Keep(Some(old)) => {
@@ -334,7 +340,7 @@ fn mutate_many(r: &mut Registry, args: &Args, recovered: Option<&Path>) -> Resul
     let mut seen = HashSet::new();
     let mut failed = false;
     for link in paths_to_visit {
-        if !seen.insert(paths::key(&link)?) {
+        if !seen.insert(paths::key(&link).unwrap_or_else(|_| link.to_string_lossy().into_owned())) {
             continue;
         }
         let plan = match args.command {

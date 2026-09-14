@@ -170,10 +170,8 @@ fn diagnose_observation(p: &Path, expected: &str, actual: Result<Option<Snapshot
         },
     };
     let expected_health = target_health(&paths::target_path(p, expected));
-    let actual_health = match &link {
-        LinkState::Match(actual) | LinkState::Mismatch(actual) => {
-            Some(target_health(&paths::target_path(p, actual)))
-        }
+    let actual_health = match &actual {
+        Ok(Some(snapshot)) => Some(target_health(&paths::target_path(p, &snapshot.target))),
         _ => None,
     };
     Diagnosis {

@@ -1,32 +1,9 @@
 use fs2::FileExt;
+use std::fs;
 use std::os::unix::fs::symlink;
-use std::{fs, process::Command};
 
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: std::path::PathBuf,
-}
-
-impl Fixture {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        fs::create_dir(root.join("home")).unwrap();
-        Self { _dir: dir, root }
-    }
-
-    fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_slink"));
-        command
-            .current_dir(&self.root)
-            .env("HOME", self.root.join("home"))
-            .env("XDG_CONFIG_HOME", self.root.join("config"))
-            .arg("--file")
-            .arg(self.root.join("links.toml"))
-            .args(args);
-        command
-    }
-}
+mod support;
+use support::Fixture;
 
 #[test]
 fn real_parent_creation_is_not_reported_as_would_mkdir() {
@@ -62,11 +39,7 @@ fn registry_rejects_duplicate_destinations_through_parent_aliases() {
     let f = Fixture::new();
     fs::create_dir(f.root.join("real")).unwrap();
     symlink("real", f.root.join("alias")).unwrap();
-    fs::write(
-        f.root.join("links.toml"),
-        "version = 1\n\n[[link]]\nlink = 'real/link'\ntarget = 'one'\n\n[[link]]\nlink = 'alias/link'\ntarget = 'two'\n",
-    )
-    .unwrap();
+    f.write_entries(&[("real/link", "one"), ("alias/link", "two")]);
 
     let output = f.command(&["list"]).output().unwrap();
     assert_eq!(output.status.code(), Some(2));
@@ -80,7 +53,7 @@ fn invalid_create_link_name_uses_argument_error_exit_code() {
     let f = Fixture::new();
     let output = f.command(&["target", "bad/"]).output().unwrap();
     assert_eq!(output.status.code(), Some(2));
-    assert!(!f.root.join("links.toml.slink-lock").exists());
+    assert!(!f.root.join("config/slink/links.toml.slink-lock").exists());
 }
 
 #[test]
@@ -94,7 +67,7 @@ fn ordinary_directory_at_managed_link_is_never_replaced() {
     fs::create_dir(f.root.join("link")).unwrap();
 
     assert_eq!(
-        f.command(&["fix", "--replace"]).status().unwrap().code(),
+        f.command(&["fix", "--force"]).status().unwrap().code(),
         Some(1)
     );
     assert_eq!(
@@ -111,9 +84,9 @@ fn editing_registry_link_field_does_not_remove_the_old_link() {
         f.command(&["future", "old-link"]).status().unwrap().code(),
         Some(0)
     );
-    let registry = fs::read_to_string(f.root.join("links.toml")).unwrap();
+    let registry = fs::read_to_string(f.root.join("config/slink/links.toml")).unwrap();
     fs::write(
-        f.root.join("links.toml"),
+        f.root.join("config/slink/links.toml"),
         registry.replace("old-link", "new-link"),
     )
     .unwrap();
@@ -147,7 +120,8 @@ fn paths_with_spaces_and_quotes_round_trip_through_registry() {
 #[test]
 fn concurrent_registry_lock_is_reported_without_mutation() {
     let f = Fixture::new();
-    let lock_path = f.root.join("links.toml.slink-lock");
+    let lock_path = f.root.join("config/slink/links.toml.slink-lock");
+    fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -162,6 +136,6 @@ fn concurrent_registry_lock_is_reported_without_mutation() {
     assert!(String::from_utf8(output.stderr)
         .unwrap()
         .contains("registry is busy"));
-    assert!(!f.root.join("links.toml").exists());
+    assert!(!f.root.join("config/slink/links.toml").exists());
     assert!(!f.root.join("link").exists());
 }

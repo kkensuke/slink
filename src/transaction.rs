@@ -70,7 +70,7 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
     f.read_to_end(&mut data)?;
     let p: Pending = serde_json::from_slice(&data)
         .context("invalid pending operation; preserve this file for recovery")?;
-    paths::validate_target(&p.entry.target)?;
+    paths::registry_path(&p.entry.target, "pending target")?;
     if p.version != 2 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
         bail!("invalid pending operation");
     }
@@ -78,6 +78,12 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
         Operation::Create if p.old.is_none() && p.backup.is_none() => {}
         Operation::Remove | Operation::Replace if p.old.is_some() && p.backup.is_some() => {}
         _ => bail!("invalid pending operation state"),
+    }
+    match (p.op, p.request.command.as_str()) {
+        (Operation::Create, "create" | "fix") => {}
+        (Operation::Replace, "create" | "fix") if p.request.force => {}
+        (Operation::Remove, "remove") if !p.request.force && !p.request.parents => {}
+        _ => bail!("invalid pending request"),
     }
     if let Some(b) = &p.backup {
         let dir = b.parent().context("invalid backup path")?;
@@ -175,6 +181,9 @@ fn sync_parent(p: &Path) -> Result<()> {
 fn resume_plan(r: &Registry, p: &Pending) -> Result<bool> {
     r.verify()?;
     r.validate_destination(&p.link)?;
+    if p.op != Operation::Remove {
+        paths::reject_self_reference(&p.link, &p.entry.target)?;
+    }
     let current = r.original.as_deref();
     if current != p.before.as_deref().map(str::as_bytes) && current != Some(p.after.as_bytes()) {
         bail!("registry differs from the pending operation; preserve the pending file and resolve the conflict");

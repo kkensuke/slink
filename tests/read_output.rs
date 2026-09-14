@@ -1,35 +1,7 @@
-use std::{fs, os::unix::fs::symlink, process::Command};
+use std::{fs, os::unix::fs::symlink};
 
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: std::path::PathBuf,
-}
-
-impl Fixture {
-    fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        fs::create_dir(root.join("home")).unwrap();
-        Self { _dir: dir, root }
-    }
-
-    fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_slink"));
-        command
-            .current_dir(&self.root)
-            .env("HOME", self.root.join("home"))
-            .env("XDG_CONFIG_HOME", self.root.join("config"))
-            .env("NO_COLOR", "1")
-            .arg("--file")
-            .arg(self.root.join("links.toml"))
-            .args(args);
-        command
-    }
-
-    fn run(&self, args: &[&str]) -> std::process::Output {
-        self.command(args).output().unwrap()
-    }
-}
+mod support;
+use support::Fixture;
 
 #[test]
 fn list_uses_vertical_human_output_and_keeps_tsv_available() {
@@ -42,8 +14,8 @@ fn list_uses_vertical_human_output_and_keeps_tsv_available() {
     assert!(human.status.success());
     let stdout = String::from_utf8(human.stdout).unwrap();
     assert!(stdout.starts_with("2 links\n\n"));
-    assert!(stdout.contains("one\n  → \"target\"\n"));
-    assert!(stdout.contains("two\n  → \"target\"\n"));
+    assert!(stdout.contains(&format!("one\n  → {:?}\n", f.path("target"))));
+    assert!(stdout.contains(&format!("two\n  → {:?}\n", f.path("target"))));
     assert!(!stdout.contains("LINK\tTARGET"));
 
     let tsv = f.run(&["list", "--format", "tsv"]);
@@ -84,7 +56,7 @@ fn scan_groups_managed_and_unmanaged_and_puts_issues_first() {
 #[test]
 fn scan_reports_traversal_errors_separately_and_returns_one() {
     let f = Fixture::new();
-    fs::write(f.root.join("links.toml"), "version = 1\n").unwrap();
+    f.write_registry("version = 2\n");
     fs::write(f.root.join("not-a-directory"), "x").unwrap();
 
     let output = f.run(&["scan", "not-a-directory"]);
@@ -98,7 +70,7 @@ fn scan_reports_traversal_errors_separately_and_returns_one() {
 #[test]
 fn scan_rejects_symlink_roots_with_or_without_trailing_separators() {
     let f = Fixture::new();
-    fs::write(f.root.join("links.toml"), "version = 1\n").unwrap();
+    f.write_registry("version = 2\n");
     fs::create_dir(f.root.join("outside")).unwrap();
     symlink("missing", f.root.join("outside/item")).unwrap();
     symlink("outside", f.root.join("alias")).unwrap();
@@ -118,7 +90,7 @@ fn scan_tsv_includes_registered_expectations_in_fixed_columns() {
     fs::create_dir(f.root.join("tree")).unwrap();
     fs::write(f.root.join("expected"), "ok").unwrap();
     fs::write(f.root.join("actual"), "ok").unwrap();
-    assert!(f.run(&["../expected", "tree/managed"]).status.success());
+    assert!(f.run(&["expected", "tree/managed"]).status.success());
     fs::remove_file(f.root.join("tree/managed")).unwrap();
     symlink("../actual", f.root.join("tree/managed")).unwrap();
     symlink("../missing", f.root.join("tree/unmanaged")).unwrap();
@@ -143,7 +115,7 @@ fn scan_tsv_includes_registered_expectations_in_fixed_columns() {
     );
     assert_eq!(
         serde_json::from_str::<String>(rows[0][6]).unwrap(),
-        "../expected"
+        f.path("expected").to_str().unwrap()
     );
     assert_eq!(rows[1][0], "UNMANAGED");
     assert_eq!(rows[1][1], "MISSING");
@@ -159,14 +131,8 @@ fn scan_returns_one_when_actual_or_registered_targets_cannot_be_inspected() {
     fs::create_dir(&private).unwrap();
     fs::write(private.join("target"), "ok").unwrap();
     fs::write(f.root.join("public"), "ok").unwrap();
-    assert!(f
-        .run(&["../private/target", "tree/managed"])
-        .status
-        .success());
-    assert!(f
-        .run(&["../private/target", "tree/matching"])
-        .status
-        .success());
+    assert!(f.run(&["private/target", "tree/managed"]).status.success());
+    assert!(f.run(&["private/target", "tree/matching"]).status.success());
     fs::remove_file(f.root.join("tree/managed")).unwrap();
     symlink("../public", f.root.join("tree/managed")).unwrap();
     symlink("../private/target", f.root.join("tree/unmanaged")).unwrap();

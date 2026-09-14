@@ -30,25 +30,26 @@ hdiutil attach -quiet -nobrowse -mountpoint "$sensitive_mount" "$sensitive_image
 
 write_registry() {
   local mount="$1"
-  cat >"$mount/links.toml" <<EOF
-version = 1
+  mkdir -p "$mount/config/slink"
+  cat >"$mount/config/slink/links.toml" <<EOF
+version = 2
 
 [[link]]
 link = "$mount/Alpha"
-target = "one"
+target = "$mount/one"
 
 [[link]]
 link = "$mount/alpha"
-target = "two"
+target = "$mount/two"
 EOF
 }
 
 write_registry "$insensitive_mount"
 write_registry "$sensitive_mount"
 
-if target/debug/slink --file "$insensitive_mount/links.toml" list >/dev/null 2>&1; then
+if XDG_CONFIG_HOME="$insensitive_mount/config" target/debug/slink list >/dev/null 2>&1; then
   echo "case-insensitive APFS accepted duplicate destinations" >&2
   exit 1
 fi
 
-target/debug/slink --file "$sensitive_mount/links.toml" list >/dev/null
+XDG_CONFIG_HOME="$sensitive_mount/config" target/debug/slink list >/dev/null

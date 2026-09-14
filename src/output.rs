@@ -149,7 +149,10 @@ impl ScanEntry {
 
     fn actual_health(&self) -> &TargetHealth {
         match &self.health {
-            ScanHealth::Managed { diagnosis, .. } => diagnosis.actual().expect("scanned symlink").1,
+            ScanHealth::Managed { diagnosis, .. } => diagnosis
+                .actual_health
+                .as_ref()
+                .expect("scanned symlink health"),
             ScanHealth::Unmanaged(health) => health,
         }
     }
