@@ -85,7 +85,7 @@ fn scan_rejects_symlink_roots_with_or_without_trailing_separators() {
 }
 
 #[test]
-fn scan_tsv_includes_registered_expectations_in_fixed_columns() {
+fn scan_tsv_uses_registered_and_actual_columns_consistently() {
     let f = Fixture::new();
     fs::create_dir(f.root.join("tree")).unwrap();
     fs::write(f.root.join("expected"), "ok").unwrap();
@@ -95,9 +95,14 @@ fn scan_tsv_includes_registered_expectations_in_fixed_columns() {
     symlink("../actual", f.root.join("tree/managed")).unwrap();
     symlink("../missing", f.root.join("tree/unmanaged")).unwrap();
 
-    let output = f.run(&["scan", "--format", "tsv", "tree"]);
+    let output = f.run(&["scan", "--format", "tsv", "./tree"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!stdout.contains("/./"));
+    assert_eq!(
+        stdout.lines().next().unwrap(),
+        "MANAGEMENT\tLINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE"
+    );
     assert_eq!(stdout.lines().count(), 3);
     assert!(stdout.lines().all(|line| line.split('\t').count() == 7));
     let rows: Vec<Vec<_>> = stdout
@@ -106,20 +111,24 @@ fn scan_tsv_includes_registered_expectations_in_fixed_columns() {
         .map(|line| line.split('\t').collect())
         .collect();
     assert_eq!(rows[0][0], "MANAGED");
-    assert_eq!(rows[0][1], "REACHABLE");
-    assert_eq!(rows[0][4], "MISMATCH");
-    assert_eq!(rows[0][5], "REACHABLE");
+    assert_eq!(rows[0][2], "MISMATCH");
+    assert_eq!(rows[0][4], "REACHABLE");
+    assert_eq!(rows[0][6], "REACHABLE");
     assert_eq!(
         serde_json::from_str::<String>(rows[0][3]).unwrap(),
-        "../actual"
-    );
-    assert_eq!(
-        serde_json::from_str::<String>(rows[0][6]).unwrap(),
         f.path("expected").to_str().unwrap()
     );
+    assert_eq!(
+        serde_json::from_str::<String>(rows[0][5]).unwrap(),
+        "../actual"
+    );
     assert_eq!(rows[1][0], "UNMANAGED");
-    assert_eq!(rows[1][1], "MISSING");
-    assert_eq!(&rows[1][4..], &["", "", ""]);
+    assert_eq!(&rows[1][2..5], &["", "", ""]);
+    assert_eq!(
+        serde_json::from_str::<String>(rows[1][5]).unwrap(),
+        "../missing"
+    );
+    assert_eq!(rows[1][6], "MISSING");
 }
 
 #[test]
@@ -165,11 +174,13 @@ fn scan_returns_one_when_actual_or_registered_targets_cannot_be_inspected() {
         .map(|line| line.split('\t').collect())
         .collect();
     assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0][1], "REACHABLE");
-    assert_eq!(rows[0][5], "UNKNOWN");
-    assert_eq!(rows[1][1], "UNKNOWN");
-    assert_eq!(rows[1][4], "MATCH");
-    assert_eq!(rows[2][1], "UNKNOWN");
+    assert_eq!(rows[0][2], "MISMATCH");
+    assert_eq!(rows[0][4], "UNKNOWN");
+    assert_eq!(rows[0][6], "REACHABLE");
+    assert_eq!(rows[1][2], "MATCH");
+    assert_eq!(rows[1][4], "UNKNOWN");
+    assert_eq!(rows[1][6], "UNKNOWN");
+    assert_eq!(rows[2][6], "UNKNOWN");
     assert!(String::from_utf8(tsv.stderr)
         .unwrap()
         .contains("Permission denied"));
