@@ -46,9 +46,6 @@ fn check_accepts_format_equals_and_rejects_invalid_formats() {
     assert!(f.run(&["target", "link"]).status.success());
 
     assert!(f.run(&["check", "--format=human"]).status.success());
-    assert_eq!(
-        f.run(&["check", "--format", "json"]).status.code(),
-        Some(2)
-    );
+    assert_eq!(f.run(&["check", "--format", "json"]).status.code(), Some(2));
     assert_eq!(f.run(&["list", "--format", "tsv"]).status.code(), Some(2));
 }
