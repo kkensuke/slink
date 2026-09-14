@@ -127,7 +127,8 @@ impl Registry {
         };
         let mut seen = HashSet::new();
         for e in &r.entries {
-            if !seen.insert(r.link(e)?) {
+            let link = r.link(e)?;
+            if !seen.insert(paths::key(&link)?) {
                 bail!("duplicate link: {:?}", e.link);
             }
         }
