@@ -179,13 +179,13 @@ fn adopt_preserves_relative_links_updates_registry_and_fix_restores_absolute() {
     let out = f.ok(&["check", "-otsv"]);
     let out = String::from_utf8(out.stdout).unwrap();
     let fields: Vec<_> = out.lines().nth(1).unwrap().split('\t').collect();
-    assert_eq!(fields[0], "MATCH");
+    assert_eq!(fields[1], "MATCH");
     assert_eq!(
-        serde_json::from_str::<String>(fields[3]).unwrap(),
+        serde_json::from_str::<String>(fields[2]).unwrap(),
         f.path("tree/python").to_str().unwrap()
     );
     assert_eq!(
-        serde_json::from_str::<String>(fields[5]).unwrap(),
+        serde_json::from_str::<String>(fields[4]).unwrap(),
         "../python"
     );
     fs::remove_file(f.path("alias/python3")).unwrap();
