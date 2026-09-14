@@ -64,7 +64,7 @@ fn registry_rejects_duplicate_destinations_through_parent_aliases() {
     symlink("real", f.root.join("alias")).unwrap();
     fs::write(
         f.root.join("links.toml"),
-        "version = 1\n\n[[links]]\nlink = 'real/link'\ntarget = 'one'\n\n[[links]]\nlink = 'alias/link'\ntarget = 'two'\n",
+        "version = 1\n\n[[link]]\nlink = 'real/link'\ntarget = 'one'\n\n[[link]]\nlink = 'alias/link'\ntarget = 'two'\n",
     )
     .unwrap();
 

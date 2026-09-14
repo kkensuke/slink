@@ -53,7 +53,7 @@ fn check_explains_a_target_mismatch_with_expected_and_actual_text() {
     fs::write(f.root.join("expected"), "ok").unwrap();
     fs::write(f.root.join("actual"), "ok").unwrap();
     symlink("actual", f.root.join("link")).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = 'link'\ntarget = 'expected'\n");
+    f.registry("version = 1\n[[link]]\nlink = 'link'\ntarget = 'expected'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
@@ -70,7 +70,7 @@ fn check_reports_missing_link_and_shortens_home_in_display() {
     fs::write(f.root.join("target"), "ok").unwrap();
     let target = f.root.join("target");
     f.registry(&format!(
-        "version = 1\n[[links]]\nlink = '~/.missing-link'\ntarget = {:?}\n",
+        "version = 1\n[[link]]\nlink = '~/.missing-link'\ntarget = {:?}\n",
         target.to_str().unwrap()
     ));
 
@@ -85,7 +85,7 @@ fn check_reports_missing_link_and_shortens_home_in_display() {
 fn check_reports_a_missing_target_without_repeating_internal_states() {
     let f = Fixture::new();
     symlink("missing", f.root.join("link")).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = 'link'\ntarget = 'missing'\n");
+    f.registry("version = 1\n[[link]]\nlink = 'link'\ntarget = 'missing'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
@@ -100,7 +100,7 @@ fn check_reports_conflicting_directory_in_plain_language() {
     let f = Fixture::new();
     fs::write(f.root.join("target"), "ok").unwrap();
     fs::create_dir(f.root.join("link")).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = 'link'\ntarget = 'target'\n");
+    f.registry("version = 1\n[[link]]\nlink = 'link'\ntarget = 'target'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
@@ -113,7 +113,7 @@ fn check_reports_conflicting_directory_in_plain_language() {
 fn check_reports_resolution_errors_with_the_os_reason() {
     let f = Fixture::new();
     symlink("link", f.root.join("link")).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = 'link'\ntarget = 'link'\n");
+    f.registry("version = 1\n[[link]]\nlink = 'link'\ntarget = 'link'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
@@ -129,7 +129,7 @@ fn check_escapes_control_characters_in_human_output() {
     let f = Fixture::new();
     let link = "line\nbreak";
     symlink("missing", f.root.join(link)).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = \"line\\nbreak\"\ntarget = 'missing'\n");
+    f.registry("version = 1\n[[link]]\nlink = \"line\\nbreak\"\ntarget = 'missing'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));

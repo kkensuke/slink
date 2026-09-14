@@ -45,7 +45,7 @@ The registry file contains roughly:
 ```toml
 version = 1
 
-[[links]]
+[[link]]
 link = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
@@ -64,6 +64,7 @@ If you want to store a relative target instead, use `--relative`; for example, t
 
 ```sh
 slink <target> <link>
+slink config
 slink list
 slink check [link ...]
 slink fix [--parents] [--replace] [link ...]
@@ -75,6 +76,7 @@ slink scan <directory ...>
 | Command | Responsibility |
 | --- | --- |
 | `slink <target> <link>` | Create a symbolic link and add its `link` / `target` entry to the registry file |
+| `slink config` | Print the default registry path to stdout without creating it |
 | `slink list` | Display registered entries without inspecting the actual links |
 | `slink check [link ...]` | Check registered links against their stored target text and report target availability |
 | `slink fix [link ...]` | Restore missing links; replacing a mismatched link requires `--replace` |
@@ -153,6 +155,8 @@ This stores `../dotfiles/nvim`.
 
 If `XDG_CONFIG_HOME` contains an absolute path such as `/Users/you/config`, the default registry is `$XDG_CONFIG_HOME/slink/links.toml`. If it is unset, empty, or contains a relative path such as `config` or `./config`, slink uses `~/.config/slink/links.toml`. Here “relative” describes the environment-variable value and is unrelated to the `--relative` option.
 
+`slink config` prints that default registry path as one line on stdout and does not create the file or its parent directory. This makes it easy to pass the path to another command, for example `code "$(slink config)"`.
+
 `--file` selects exactly one other registry file. Files are not merged or auto-discovered. A relative `--file` path starts from the working directory.
 
 ```sh
@@ -171,7 +175,7 @@ A hand-written project registry can use a relative `link` instead:
 ```toml
 version = 1
 
-[[links]]
+[[link]]
 link = "../run/nvim"
 target = "../dotfiles/nvim"
 ```
@@ -195,7 +199,7 @@ A registry `target` is the exact text stored in the symbolic link, so `target = 
 
 ### Editing entries by hand
 
-One registration is one complete `[[links]]` block containing `link` and `target`.
+One registration is one complete `[[link]]` block containing `link` and `target`.
 
 | Hand edit | Effect |
 | --- | --- |
