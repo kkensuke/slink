@@ -214,26 +214,47 @@ fn projected_health_for(
     Some(projected_health(&target, results, &mut HashSet::new()))
 }
 
+fn projected_key(path: &Path) -> String {
+    paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
+}
+
+fn projected_link_at<'a>(
+    path: &Path,
+    results: &'a [MutationResult],
+) -> Option<(&'a MutationResult, PathBuf)> {
+    let mut ancestors = path.ancestors().collect::<Vec<_>>();
+    ancestors.reverse();
+    for ancestor in ancestors {
+        let key = projected_key(ancestor);
+        if let Some(result) = results.iter().find(|result| {
+            !matches!(
+                result.action,
+                MutationAction::Remove | MutationAction::Unregister
+            ) && projected_key(&result.link) == key
+        }) {
+            let suffix = path
+                .strip_prefix(ancestor)
+                .expect("ancestor is a path prefix")
+                .to_path_buf();
+            return Some((result, suffix));
+        }
+    }
+    None
+}
+
 fn projected_health(
     path: &Path,
     results: &[MutationResult],
     visiting: &mut HashSet<String>,
 ) -> inspect::TargetHealth {
-    let key = paths::key(path).unwrap_or_else(|_| path.to_string_lossy().into_owned());
-    let planned = results.iter().find(|result| {
-        !matches!(
-            result.action,
-            MutationAction::Remove | MutationAction::Unregister
-        ) && paths::key(&result.link).unwrap_or_else(|_| result.link.to_string_lossy().into_owned())
-            == key
-    });
-    let Some(result) = planned else {
+    let Some((result, suffix)) = projected_link_at(path, results) else {
         return inspect::target_health(path);
     };
+    let key = projected_key(&result.link);
     if !visiting.insert(key.clone()) {
         return inspect::TargetHealth::ResolutionError("symlink loop in planned fix".into());
     }
-    let target = paths::target_path(&result.link, &result.target);
+    let target = paths::target_path(&result.link, &result.target).join(suffix);
     let health = projected_health(&target, results, visiting);
     visiting.remove(&key);
     health
