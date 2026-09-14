@@ -359,7 +359,10 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
     for index in 0..links.len() {
         visit(index, &dependencies, &mut state, &mut order);
     }
-    Ok(order.into_iter().map(|index| links[index].clone()).collect())
+    Ok(order
+        .into_iter()
+        .map(|index| links[index].clone())
+        .collect())
 }
 
 fn mutate_many(
