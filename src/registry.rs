@@ -125,10 +125,17 @@ impl Registry {
             doc,
             entries,
         };
-        let mut seen = HashSet::new();
+        let mut seen_paths = HashSet::new();
+        let mut seen_keys = HashSet::new();
         for e in &r.entries {
-            if !seen.insert(r.link(e)?) {
+            let link = r.link(e)?;
+            if !seen_paths.insert(link.clone()) {
                 bail!("duplicate link: {:?}", e.link);
+            }
+            if let Ok(key) = paths::key(&link) {
+                if !seen_keys.insert(key) {
+                    bail!("duplicate link: {:?}", e.link);
+                }
             }
         }
         Ok(r)

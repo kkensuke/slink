@@ -13,7 +13,7 @@ jobs:
         os: [macos-14, macos-15-intel, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
       - name: Formatting
@@ -22,9 +22,12 @@ jobs:
         run: cargo +stable clippy --locked --all-targets -- -D warnings
       - name: Tests
         run: cargo +stable test --locked
+      - name: APFS case modes
+        if: runner.os == 'macOS'
+        run: bash tests/apfs_case_modes.sh
       - name: Release build
         run: cargo +stable build --locked --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: runner.os == 'macOS'
         with:
           name: slink-${{ runner.os }}-${{ runner.arch }}
