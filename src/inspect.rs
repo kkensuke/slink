@@ -164,15 +164,15 @@ pub fn diagnose(p: &Path, expected: &str) -> Diagnosis {
         Ok(Some(s)) => LinkState::Mismatch(s.target.clone()),
         Ok(None) => LinkState::Missing,
         Err(error) => match fs::symlink_metadata(p) {
-            Ok(metadata) if !metadata.file_type().is_symlink() => LinkState::Conflict(
-                if metadata.is_file() {
+            Ok(metadata) if !metadata.file_type().is_symlink() => {
+                LinkState::Conflict(if metadata.is_file() {
                     "file"
                 } else if metadata.is_dir() {
                     "directory"
                 } else {
                     "filesystem object"
-                },
-            ),
+                })
+            }
             _ => LinkState::Unknown(error.to_string()),
         },
     };
@@ -189,8 +189,9 @@ pub fn diagnose(p: &Path, expected: &str) -> Diagnosis {
 }
 
 fn print_target(label: &str, target: &str, health: &TargetHealth) {
+    let separator = if label == "actual" { ":   " } else { ": " };
     println!(
-        "  {label}: {}{}",
+        "  {label}{separator}{}{}",
         display_text(target),
         health.annotation()
     );
@@ -210,7 +211,11 @@ pub fn display_link(p: &Path) -> String {
                 .map(|rest| format!("~/{rest}"))
         }
     });
-    display_text(compact.as_deref().unwrap_or_else(|| p.to_str().unwrap_or("<non-UTF-8>")))
+    display_text(
+        compact
+            .as_deref()
+            .unwrap_or_else(|| p.to_str().unwrap_or("<non-UTF-8>")),
+    )
 }
 
 pub fn display_text(text: &str) -> String {
