@@ -129,13 +129,16 @@ fn check_escapes_control_characters_in_human_output() {
     let f = Fixture::new();
     let link = "line\nbreak";
     symlink("missing", f.root.join(link)).unwrap();
-    f.registry("version = 1\n[[links]]\nlink = 'line\\nbreak'\ntarget = 'missing'\n");
+    f.registry("version = 1\n[[links]]\nlink = \"line\\nbreak\"\ntarget = 'missing'\n");
 
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("line\\nbreak"));
-    assert_eq!(stdout.lines().filter(|line| line.starts_with("! ")).count(), 1);
+    assert_eq!(
+        stdout.lines().filter(|line| line.starts_with("! ")).count(),
+        1
+    );
 }
 
 #[test]
@@ -154,7 +157,9 @@ fn check_reports_pending_recovery_separately() {
     assert!(stdout.contains("! incomplete operation\n"));
     assert!(stdout.contains("  operation: create\n"));
     assert!(stdout.contains("  target: future\n"));
-    assert!(stdout.contains("repeat the original command with the same target and options to recover"));
+    assert!(
+        stdout.contains("repeat the original command with the same target and options to recover")
+    );
 }
 
 #[test]
@@ -167,5 +172,8 @@ fn check_selected_link_keeps_the_checked_count_scoped_to_the_selection() {
     let output = f.run(&["check", "one"]);
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "OK 1 link\n");
-    assert_eq!(fs::read_link(f.root.join("one")).unwrap(), Path::new("target"));
+    assert_eq!(
+        fs::read_link(f.root.join("one")).unwrap(),
+        Path::new("target")
+    );
 }
