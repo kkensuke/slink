@@ -1,3 +1,4 @@
+use crate::paths;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 
@@ -146,6 +147,10 @@ impl Args {
         }
         if a.dry_run && !a.mutates() {
             bail!("--dry-run is only valid for mutation commands");
+        }
+        if a.command == Command::Create {
+            paths::validate_target(&a.operands[0])?;
+            paths::validate_link(&a.operands[1])?;
         }
         Ok(a)
     }
