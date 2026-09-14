@@ -167,7 +167,8 @@ fn collect_scan(r: &Registry, roots: &[String]) -> Result<(Vec<ScanEntry>, Vec<S
                     continue;
                 }
             };
-            let actual_health = inspect::target_health(&paths::target_path(&path, &snapshot.target));
+            let actual_health =
+                inspect::target_health(&paths::target_path(&path, &snapshot.target));
             let managed = match r.find(&path) {
                 Ok(Some(index)) => {
                     let expected = r.entries[index].target.clone();
@@ -283,12 +284,8 @@ fn print_scan_section(entries: &[ScanEntry]) {
             println!();
         }
         match &entry.managed {
-            Some((expected, diagnosis)) if diagnosis.is_healthy() => {
-                println!(
-                    "  {} {}",
-                    ok_marker(),
-                    inspect::display_link(&entry.link)
-                );
+            Some((_, diagnosis)) if diagnosis.is_healthy() => {
+                println!("  {} {}", ok_marker(), inspect::display_link(&entry.link));
                 println!("    → {}", inspect::display_text(&entry.target));
             }
             Some((expected, diagnosis)) => {
@@ -313,11 +310,7 @@ fn print_scan_section(entries: &[ScanEntry]) {
 fn print_unmanaged(entry: &ScanEntry) {
     match entry.actual_health.problem_label() {
         None => {
-            println!(
-                "  {} {}",
-                ok_marker(),
-                inspect::display_link(&entry.link)
-            );
+            println!("  {} {}", ok_marker(), inspect::display_link(&entry.link));
             println!("    → {}", inspect::display_text(&entry.target));
         }
         Some(problem) => {
