@@ -138,9 +138,9 @@ slink fix ~/bin/python3
 
 The registry is `$XDG_CONFIG_HOME/slink/links.toml` when `XDG_CONFIG_HOME` is an absolute path. If it is unset, empty, or relative, such as `config` or `./config`, slink uses `~/.config/slink/links.toml`. Creation or adoption initializes the registry when needed. `scan` can run before it exists.
 
+Open the registry to view or edit it:
 ```sh
-slink --config
-code "$(slink --config)"
+open "$(slink --config)"
 ```
 
 One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. An empty file represents no registrations.

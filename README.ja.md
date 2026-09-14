@@ -138,9 +138,9 @@ slink fix ~/bin/python3
 
 `XDG_CONFIG_HOME` が絶対パスなら、管理ファイルは `$XDG_CONFIG_HOME/slink/links.toml` です。未設定・空・`config` や `./config` のような相対パスの場合は、`~/.config/slink/links.toml` を使います。作成または adopt の際、必要なら管理ファイルを初期化します。`scan` は管理ファイルがなくても実行できます。
 
+管理ファイルを開いて表示または編集するには、次のコマンドが使えます。
 ```sh
-slink --config
-code "$(slink --config)"
+open "$(slink --config)"
 ```
 
 1件の登録は、完全な `[[link]]` ブロック1つで、文字列の `link` と `target` の2項目だけを記述します。両方とも絶対パスが必要です。空ファイルは登録0件を表します。
