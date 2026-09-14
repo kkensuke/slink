@@ -11,6 +11,16 @@ pub fn home() -> Result<PathBuf> {
         .filter(|p| p.is_absolute())
         .context("HOME must be an absolute directory")
 }
+pub fn default_registry_path() -> Result<PathBuf> {
+    let root = match std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        Some(root) => root,
+        None => home()?.join(".config"),
+    };
+    Ok(root.join("slink/links.toml"))
+}
 pub fn absolute(p: &Path) -> Result<PathBuf> {
     Ok(if p.is_absolute() {
         p.to_path_buf()
