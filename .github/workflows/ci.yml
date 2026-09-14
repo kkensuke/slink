@@ -1,0 +1,32 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15-intel, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Formatting
+        run: cargo +stable fmt --check
+      - name: Lints
+        run: cargo +stable clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        run: cargo +stable test --locked
+      - name: Release build
+        run: cargo +stable build --locked --release
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: slink-${{ runner.os }}-${{ runner.arch }}
+          path: target/release/slink
+          retention-days: 14

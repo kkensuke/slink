@@ -1,0 +1,16 @@
+[package]
+name = "slink"
+version = "0.1.0"
+edition = "2021"
+description = "A managed symbolic-link CLI for macOS"
+repository = "https://github.com/kkensuke/slink"
+
+[dependencies]
+anyhow = "1"
+fs2 = "0.4"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+toml_edit = "0.22"
+unicode-normalization = "0.1"
