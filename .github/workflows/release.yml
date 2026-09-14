@@ -31,7 +31,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          release_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          git merge-base --is-ancestor "$release_commit" origin/main
 
           tag_version="${RELEASE_TAG#v}"
           cargo_version="$(awk -F '"' '/^version = "/ { print $2; exit }' Cargo.toml)"
