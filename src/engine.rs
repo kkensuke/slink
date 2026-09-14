@@ -1,5 +1,5 @@
 use crate::{
-    cli::{Args, Command, HELP},
+    cli::{Args, CheckFormat, Command, HELP},
     inspect, paths,
     registry::{Entry, Registry},
     transaction::{self, Operation},
@@ -35,6 +35,21 @@ pub fn run(args: Args) -> Result<u8> {
     }
     let pending = transaction::load(&r)?;
     if args.command == Command::Check {
+        if args.check_format == CheckFormat::Tsv {
+            let mut failed = pending.is_some();
+            if let Some(p) = &pending {
+                eprintln!(
+                    "PENDING: {:?} {:?} -> {:?}; repeat the operation for this link with the original options to recover",
+                    p.op, p.link, p.entry.target
+                );
+            }
+            println!("LINK_STATE\tTARGET_STATE\tLINK\tTARGET");
+            for e in selected(&r, &args.operands)? {
+                failed |= !inspect::report_tsv(&r.link(&e)?, &e.target);
+            }
+            return Ok(u8::from(failed));
+        }
+
         let entries = selected(&r, &args.operands)?;
         let checked = entries.len();
         let mut problems = Vec::new();
