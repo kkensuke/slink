@@ -1,5 +1,7 @@
 # slink
 
+[English](README.md) | [日本語](README.ja.md)
+
 A macOS CLI for managing symbolic links. Create links, record their intended targets in a hand-editable TOML file, and inspect, restore, or remove them later.
 
 ## Install
@@ -253,7 +255,7 @@ Automatic registration of newly created links, preservation of TOML formatting, 
 
 ## Safety and recovery
 
-Missing targets are allowed and reported. Ordinary files/directories are never overwritten by `fix --replace` or deleted by `remove`. An unregistered existing symbolic link must be adopted first. A changed registered link must be explicitly replaced or unregistered with `--keep-link`.
+Missing targets are allowed and reported. Ordinary files/directories are never overwritten by `fix --replace` or deleted by `remove`. An unregistered existing symbolic link must first be registered with `adopt`. A changed registered link must be explicitly replaced or unregistered with `--keep-link`.
 
 The selected registry file, its control files, and their parent paths cannot themselves be managed link paths. Select a registry file elsewhere with `--file` if you need to manage a directory that would contain it.
 
@@ -261,7 +263,7 @@ Mutation commands use a registry lock and compare registry file contents again b
 
 Replacement/removal stages the old link in a private directory beside its original location, verifies its identity, and deletes only that verified symbolic link. Unexpected objects are preserved. Replacement may briefly leave the link name absent.
 
-A registry file can have adjacent control files named with `.slink-lock` and, while an operation is incomplete, `.slink-pending` suffixes; for example, `links.toml.slink-pending`. Do not delete pending files or `.slink-*` recovery directories before resolving an interrupted operation. Locks coordinate slink processes, not arbitrary editors. There is no whole-batch atomicity or unconditional power-loss guarantee; completed items are retained when a later item fails.
+The ordinary file storing the registry data can have adjacent control files named with `.slink-lock` and, while an operation is incomplete, `.slink-pending` suffixes; for example, `links.toml.slink-pending`. Do not delete pending files or `.slink-*` recovery directories before resolving an interrupted operation. Locks coordinate slink processes, not arbitrary editors. There is no whole-batch atomicity or unconditional power-loss guarantee; completed items are retained when a later item fails.
 
 Supported paths and target text must be UTF-8. Nested managed link paths are unsupported, and ambiguous spellings of link paths are rejected conservatively. A missing parent path containing `..` must be resolved explicitly rather than guessed. Filesystem operations that cannot provide the required exclusive behavior fail rather than falling back to overwriting existing paths.
 
