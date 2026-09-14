@@ -34,7 +34,7 @@ fn run_chain(entries: &[(&str, &str)]) -> (String, String) {
 
 fn preview_chain(entries: &[(&str, &str)]) -> (String, String) {
     let f = Fixture::new();
-    setup_chain(f, entries);
+    setup_chain(&f, entries);
 
     let output = f.ok(&["fix", "-n"]);
     assert!(fs::symlink_metadata(f.path("managed/base")).is_err());
