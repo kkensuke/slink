@@ -460,8 +460,10 @@ fn mutate_many(
             Err(error) => report.failure(&link, &error),
         }
         if !args.dry_run && transaction::load(r)?.is_some() {
-            eprintln!("! incomplete operation\
-  remaining links were not processed; repeat the operation for the failed link to recover");
+            eprintln!(
+                "! incomplete operation\
+  remaining links were not processed; repeat the operation for the failed link to recover"
+            );
             break;
         }
     }
