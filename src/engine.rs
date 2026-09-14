@@ -332,7 +332,12 @@ fn order_fix_paths(r: &Registry, mut links: Vec<PathBuf>) -> Result<Vec<PathBuf>
         dependencies[index] = indexes.get(&stable_path_key(&target)).copied();
     }
 
-    fn visit(index: usize, dependencies: &[Option<usize>], state: &mut [u8], order: &mut Vec<usize>) {
+    fn visit(
+        index: usize,
+        dependencies: &[Option<usize>],
+        state: &mut [u8],
+        order: &mut Vec<usize>,
+    ) {
         if state[index] == 2 {
             return;
         }
