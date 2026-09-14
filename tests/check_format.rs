@@ -40,13 +40,21 @@ fn check_tsv_keeps_the_previous_machine_readable_shape() {
 }
 
 #[test]
-fn check_accepts_format_equals_and_rejects_invalid_formats() {
+fn read_only_views_accept_supported_formats_and_reject_invalid_formats() {
     let f = Fixture::new();
     fs::write(f.root.join("target"), "ok").unwrap();
+    fs::create_dir(f.root.join("tree")).unwrap();
     assert!(f.run(&["target", "link"]).status.success());
 
     assert!(f.run(&["check", "--format=human"]).status.success());
+    assert!(f.run(&["list", "--format", "tsv"]).status.success());
+    assert!(f.run(&["list", "--format", "human"]).status.success());
+    assert!(f.run(&["scan", "--format", "tsv", "tree"]).status.success());
+    assert!(f
+        .run(&["scan", "--format", "human", "tree"])
+        .status
+        .success());
+
     assert_eq!(f.run(&["check", "--format", "json"]).status.code(), Some(2));
-    assert_eq!(f.run(&["list", "--format", "tsv"]).status.code(), Some(2));
-    assert_eq!(f.run(&["list", "--format", "human"]).status.code(), Some(2));
+    assert_eq!(f.run(&["fix", "--format", "tsv"]).status.code(), Some(2));
 }

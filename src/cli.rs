@@ -2,7 +2,7 @@ use crate::paths;
 use anyhow::{bail, Result};
 use std::path::PathBuf;
 
-pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink config\n  slink list\n  slink check [--format <human|tsv>] [link ...]\n  slink fix [--parents] [--replace] [link ...]\n  slink remove [--keep-link] <link ...>\n  slink adopt <link ...>\n  slink scan <directory ...>\n\nOPTIONS:\n  --file <path>    Use one explicit TOML registry\n  --format <name>  Check output format: human (default) or tsv\n  --relative       Generate a relative target (creation only)\n  --parents        Create missing link parent directories (create/fix)\n  --replace        Replace mismatched managed symlinks (fix only)\n  --keep-link      Unregister without deleting the link (remove only)\n  --dry-run        Display a mutation plan without writing anything\n  --help           Show help\n  --version        Show version\n\nUse -- before literal operands, e.g. slink -- list ./list-link.\nWithout --relative, target is stored literally, as with ln -s.\n";
+pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink config\n  slink list [--format <human|tsv>]\n  slink check [--format <human|tsv>] [link ...]\n  slink fix [--parents] [--replace] [link ...]\n  slink remove [--keep-link] <link ...>\n  slink adopt <link ...>\n  slink scan [--format <human|tsv>] <directory ...>\n\nOPTIONS:\n  --file <path>    Use one explicit TOML registry\n  --format <name>  Output format for list/check/scan: human (default) or tsv\n  --relative       Generate a relative target (creation only)\n  --parents        Create missing link parent directories (create/fix)\n  --replace        Replace mismatched managed symlinks (fix only)\n  --keep-link      Unregister without deleting the link (remove only)\n  --dry-run        Display a mutation plan without writing anything\n  --help           Show help\n  --version        Show version\n\nUse -- before literal operands, e.g. slink -- list ./list-link.\nWithout --relative, target is stored literally, as with ln -s.\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -18,7 +18,7 @@ pub enum Command {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CheckFormat {
+pub enum OutputFormat {
     Human,
     Tsv,
 }
@@ -28,13 +28,13 @@ pub struct Args {
     pub command: Command,
     pub operands: Vec<String>,
     pub file: Option<PathBuf>,
-    pub check_format: CheckFormat,
+    pub output_format: OutputFormat,
     pub dry_run: bool,
     pub relative: bool,
     pub parents: bool,
     pub replace: bool,
     pub keep_link: bool,
-    check_format_set: bool,
+    output_format_set: bool,
 }
 
 impl Args {
@@ -43,13 +43,13 @@ impl Args {
             command: Command::Create,
             operands: vec![],
             file: None,
-            check_format: CheckFormat::Human,
+            output_format: OutputFormat::Human,
             dry_run: false,
             relative: false,
             parents: false,
             replace: false,
             keep_link: false,
-            check_format_set: false,
+            output_format_set: false,
         };
         let mut input = input.into_iter();
         let mut literal = false;
@@ -84,8 +84,8 @@ impl Args {
                             .next()
                             .filter(|x| !x.is_empty())
                             .ok_or_else(|| anyhow::anyhow!("--format needs human or tsv"))?;
-                        a.check_format = parse_check_format(&value)?;
-                        a.check_format_set = true;
+                        a.output_format = parse_output_format(&value)?;
+                        a.output_format_set = true;
                         continue;
                     }
                     "--dry-run" => {
@@ -119,8 +119,8 @@ impl Args {
                         if s.len() == 9 {
                             bail!("--format needs human or tsv");
                         }
-                        a.check_format = parse_check_format(&s[9..])?;
-                        a.check_format_set = true;
+                        a.output_format = parse_output_format(&s[9..])?;
+                        a.output_format_set = true;
                         continue;
                     }
                     _ if s.starts_with('-') => {
@@ -160,8 +160,10 @@ impl Args {
             }
             _ => {}
         }
-        if a.check_format_set && a.command != Command::Check {
-            bail!("--format is only valid for check");
+        if a.output_format_set
+            && !matches!(a.command, Command::List | Command::Check | Command::Scan)
+        {
+            bail!("--format is only valid for list/check/scan");
         }
         if a.relative && a.command != Command::Create {
             bail!("--relative is only valid for creation");
@@ -192,10 +194,10 @@ impl Args {
     }
 }
 
-fn parse_check_format(value: &str) -> Result<CheckFormat> {
+fn parse_output_format(value: &str) -> Result<OutputFormat> {
     match value {
-        "human" => Ok(CheckFormat::Human),
-        "tsv" => Ok(CheckFormat::Tsv),
+        "human" => Ok(OutputFormat::Human),
+        "tsv" => Ok(OutputFormat::Tsv),
         _ => bail!("invalid --format {value:?}; expected human or tsv"),
     }
 }

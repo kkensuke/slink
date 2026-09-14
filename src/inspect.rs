@@ -19,12 +19,25 @@ pub enum TargetHealth {
 }
 
 impl TargetHealth {
-    fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Reachable => "REACHABLE",
             Self::Missing => "MISSING",
             Self::ResolutionError(_) => "RESOLUTION_ERROR",
             Self::Unknown(_) => "UNKNOWN",
+        }
+    }
+
+    pub fn is_reachable(&self) -> bool {
+        matches!(self, Self::Reachable)
+    }
+
+    pub fn problem_label(&self) -> Option<&'static str> {
+        match self {
+            Self::Reachable => None,
+            Self::Missing => Some("target is missing"),
+            Self::ResolutionError(_) => Some("target cannot be resolved"),
+            Self::Unknown(_) => Some("cannot inspect target"),
         }
     }
 
@@ -37,7 +50,7 @@ impl TargetHealth {
         }
     }
 
-    fn reason(&self) -> Option<&str> {
+    pub fn reason(&self) -> Option<&str> {
         match self {
             Self::ResolutionError(reason) | Self::Unknown(reason) => Some(reason),
             Self::Reachable | Self::Missing => None,
@@ -67,34 +80,36 @@ impl Diagnosis {
             && matches!(self.expected_health, TargetHealth::Reachable)
     }
 
-    pub fn print(&self, p: &Path, expected: &str) {
+    pub fn render(&self, p: &Path, expected: &str) -> Vec<String> {
         let link = display_link(p);
+        let mut lines = Vec::new();
         match &self.link {
             LinkState::Match => match &self.expected_health {
                 TargetHealth::Reachable => {}
                 TargetHealth::Missing => {
-                    println!("! {link} — target is missing");
-                    println!("  target: {}", display_text(expected));
+                    lines.push(format!("! {link} — target is missing"));
+                    lines.push(format!("  target: {}", display_text(expected)));
                 }
                 TargetHealth::ResolutionError(reason) => {
-                    println!("! {link} — target cannot be resolved");
-                    println!("  target: {}", display_text(expected));
-                    println!("  reason: {}", display_text(reason));
+                    lines.push(format!("! {link} — target cannot be resolved"));
+                    lines.push(format!("  target: {}", display_text(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
                 }
                 TargetHealth::Unknown(reason) => {
-                    println!("! {link} — cannot inspect target");
-                    println!("  target: {}", display_text(expected));
-                    println!("  reason: {}", display_text(reason));
+                    lines.push(format!("! {link} — cannot inspect target"));
+                    lines.push(format!("  target: {}", display_text(expected)));
+                    lines.push(format!("  reason: {}", display_text(reason)));
                 }
             },
             LinkState::Missing => {
-                println!("! {link} — link is missing");
-                print_target("target", expected, &self.expected_health);
+                lines.push(format!("! {link} — link is missing"));
+                push_target(&mut lines, "target", expected, &self.expected_health);
             }
             LinkState::Mismatch(actual) => {
-                println!("! {link} — target differs");
-                print_target("expected", expected, &self.expected_health);
-                print_target(
+                lines.push(format!("! {link} — target differs"));
+                push_target(&mut lines, "expected", expected, &self.expected_health);
+                push_target(
+                    &mut lines,
                     "actual",
                     actual,
                     self.actual_health
@@ -103,14 +118,21 @@ impl Diagnosis {
                 );
             }
             LinkState::Conflict(kind) => {
-                println!("! {link} — expected a symlink, found {kind}");
-                print_target("target", expected, &self.expected_health);
+                lines.push(format!("! {link} — expected a symlink, found {kind}"));
+                push_target(&mut lines, "target", expected, &self.expected_health);
             }
             LinkState::Unknown(reason) => {
-                println!("! {link} — cannot inspect link");
-                println!("  reason: {}", display_text(reason));
-                print_target("target", expected, &self.expected_health);
+                lines.push(format!("! {link} — cannot inspect link"));
+                lines.push(format!("  reason: {}", display_text(reason)));
+                push_target(&mut lines, "target", expected, &self.expected_health);
             }
+        }
+        lines
+    }
+
+    pub fn print(&self, p: &Path, expected: &str) {
+        for line in self.render(p, expected) {
+            println!("{line}");
         }
     }
 }
@@ -140,7 +162,7 @@ pub fn snapshot(p: &Path) -> Result<Option<Snapshot>> {
     }))
 }
 
-fn target_health(p: &Path) -> TargetHealth {
+pub fn target_health(p: &Path) -> TargetHealth {
     match fs::metadata(p) {
         Ok(_) => TargetHealth::Reachable,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => TargetHealth::Missing,
@@ -188,15 +210,15 @@ pub fn diagnose(p: &Path, expected: &str) -> Diagnosis {
     }
 }
 
-fn print_target(label: &str, target: &str, health: &TargetHealth) {
+fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &TargetHealth) {
     let separator = if label == "actual" { ":   " } else { ": " };
-    println!(
+    lines.push(format!(
         "  {label}{separator}{}{}",
         display_text(target),
         health.annotation()
-    );
+    ));
     if let Some(reason) = health.reason() {
-        println!("  {label} reason: {}", display_text(reason));
+        lines.push(format!("  {label} reason: {}", display_text(reason)));
     }
 }
 

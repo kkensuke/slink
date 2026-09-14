@@ -1,6 +1,7 @@
 mod cli;
 mod engine;
 mod inspect;
+mod output;
 mod paths;
 mod registry;
 mod transaction;
