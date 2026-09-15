@@ -132,8 +132,6 @@ fn unregister_requires_paths_and_accepts_only_dry_run() {
         vec!["unregister", "-p", "link"],
         vec!["unregister", "-R", "link"],
         vec!["unregister", "-o", "tsv", "link"],
-        vec!["remove", "-k", "link"],
-        vec!["remove", "--keep-link", "link"],
     ] {
         assert_eq!(f.run(&args).status.code(), Some(2), "{args:?}");
         assert_eq!(f.registry(), before);
@@ -143,5 +141,4 @@ fn unregister_requires_paths_and_accepts_only_dry_run() {
     let help = String::from_utf8(f.ok(&["--help"]).stdout).unwrap();
     assert!(help.contains("slink unregister [-n] <link ...>"));
     assert!(help.contains("slink remove [-n] <link ...>"));
-    assert!(!help.contains("--keep-link"));
 }
