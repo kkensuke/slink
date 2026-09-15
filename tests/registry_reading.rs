@@ -139,7 +139,7 @@ fn listing_invalid_paths_does_not_relax_mutation_validation() {
         vec!["fix", "-n"],
         vec!["adopt", "link"],
         vec!["remove", "link"],
-        vec!["remove", "-k", "link"],
+        vec!["unregister", "link"],
         vec!["scan"],
     ] {
         assert_eq!(f.run(&args).status.code(), Some(2), "{args:?}");

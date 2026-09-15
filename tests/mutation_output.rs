@@ -9,7 +9,7 @@ fn creation_adoption_and_removal_share_the_human_layout() {
     for (args, label) in [
         (vec!["source", "~/link"], "created"),
         (vec!["adopt", "~/link"], "unchanged"),
-        (vec!["remove", "-k", "~/link"], "unregistered"),
+        (vec!["unregister", "~/link"], "unregistered"),
         (vec!["adopt", "~/link"], "registered"),
         (vec!["remove", "~/link"], "removed"),
     ] {

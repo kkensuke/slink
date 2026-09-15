@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink --config\n  slink list [-o <human|tsv>]\n  slink check [-o <human|tsv>] [link ...]\n  slink fix [-fnp] [link ...]\n  slink remove [-kn] <link ...>\n  slink adopt [-n] <link ...>\n  slink scan [-R] [-o <human|tsv>] [directory ...]\n\nOPTIONS:\n  -c, --config         Print the registry path without creating it\n  -f, --force          Replace different symlinks (create/fix only)\n  -p, --parents        Create missing link parent directories (create/fix)\n  -n, --dry-run        Display a mutation plan without writing anything\n  -k, --keep-link      Unregister without deleting the link (remove only)\n  -R, --recursive      Scan subdirectories; never follow directory symlinks\n  -o, --format <name>  Output for list/check/scan: human (default) or tsv\n  -h, --help           Show help\n  -V, --version        Show version\n\nCLI paths start from the working directory; ~/ expands to your home.\nThe registry stores absolute link and target paths only.\nUse -- before literal operands, e.g. slink -- list ./list-link.\n";
+pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink --config\n  slink list [-o <human|tsv>]\n  slink check [-o <human|tsv>] [link ...]\n  slink fix [-fnp] [link ...]\n  slink unregister [-n] <link ...>\n  slink remove [-n] <link ...>\n  slink adopt [-n] <link ...>\n  slink scan [-R] [-o <human|tsv>] [directory ...]\n\nOPTIONS:\n  -c, --config         Print the registry path without creating it\n  -f, --force          Replace different symlinks (create/fix only)\n  -p, --parents        Create missing link parent directories (create/fix)\n  -n, --dry-run        Display a mutation plan without writing anything\n  -R, --recursive      Scan subdirectories; never follow directory symlinks\n  -o, --format <name>  Output for list/check/scan: human (default) or tsv\n  -h, --help           Show help\n  -V, --version        Show version\n\nCLI paths start from the working directory; ~/ expands to your home.\nThe registry stores absolute link and target paths only.\nUse -- before literal operands, e.g. slink -- list ./list-link.\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -10,6 +10,7 @@ pub enum Command {
     Check,
     Fix,
     Remove,
+    Unregister,
     Adopt,
     Scan,
     Help,
@@ -30,7 +31,6 @@ pub struct Args {
     pub dry_run: bool,
     pub parents: bool,
     pub force: bool,
-    pub keep_link: bool,
     pub recursive: bool,
 }
 
@@ -45,7 +45,6 @@ impl Args {
             dry_run: false,
             parents: false,
             force: false,
-            keep_link: false,
             recursive: false,
         };
         let mut info = None;
@@ -71,7 +70,6 @@ impl Args {
                             'f' => "force",
                             'p' => "parents",
                             'n' => "dry-run",
-                            'k' => "keep-link",
                             'R' => "recursive",
                             'h' => "help",
                             'V' => "version",
@@ -105,7 +103,6 @@ impl Args {
                         "force" => a.force = true,
                         "parents" => a.parents = true,
                         "dry-run" => a.dry_run = true,
-                        "keep-link" => a.keep_link = true,
                         "recursive" => a.recursive = true,
                         "format" => {
                             a.output_format =
@@ -129,6 +126,7 @@ impl Args {
                     "check" => Some(Command::Check),
                     "fix" => Some(Command::Fix),
                     "remove" => Some(Command::Remove),
+                    "unregister" => Some(Command::Unregister),
                     "adopt" => Some(Command::Adopt),
                     "scan" => Some(Command::Scan),
                     _ => None,
@@ -148,7 +146,6 @@ impl Args {
                 || a.dry_run
                 || a.parents
                 || a.force
-                || a.keep_link
                 || a.recursive
             {
                 bail!("--config, --help and --version take no other command, operands or options");
@@ -163,7 +160,7 @@ impl Args {
         match a.command {
             Command::Create if a.operands.len() != 2 => bail!("creation needs <target> <link>"),
             Command::List if !a.operands.is_empty() => bail!("list takes no operands"),
-            Command::Remove | Command::Adopt if a.operands.is_empty() => {
+            Command::Remove | Command::Unregister | Command::Adopt if a.operands.is_empty() => {
                 bail!("this command needs at least one path")
             }
             Command::Scan if a.operands.is_empty() => a.operands.push(".".into()),
@@ -174,9 +171,6 @@ impl Args {
         }
         if (a.parents || a.force) && !matches!(a.command, Command::Create | Command::Fix) {
             bail!("--parents and --force are only valid for create/fix");
-        }
-        if a.keep_link && a.command != Command::Remove {
-            bail!("--keep-link is only valid for remove");
         }
         if a.recursive && a.command != Command::Scan {
             bail!("--recursive is only valid for scan");
@@ -194,7 +188,7 @@ impl Args {
     pub fn mutates(&self) -> bool {
         matches!(
             self.command,
-            Command::Create | Command::Adopt | Command::Fix | Command::Remove
+            Command::Create | Command::Adopt | Command::Fix | Command::Remove | Command::Unregister
         )
     }
 }

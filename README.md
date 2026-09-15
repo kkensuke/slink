@@ -64,6 +64,7 @@ slink --config
 slink list
 slink check [link ...]
 slink fix [options] [link ...]
+slink unregister [options] <link ...>
 slink remove [options] <link ...>
 slink adopt [options] <link ...>
 slink scan [options] [directory ...]
@@ -76,11 +77,12 @@ slink scan [options] [directory ...]
 | `slink list` | Display registrations without inspecting symlinks |
 | `slink check [link ...]` | Compare symlinks with their registrations and check whether their targets are reachable |
 | `slink fix [link ...]` | Restore symlinks from the registry; replacing an existing symlink with a different target requires `-f` |
+| `slink unregister <link ...>` | Unregister symlinks without changing anything at their locations |
 | `slink remove <link ...>` | Delete symlinks that match their registrations and unregister them; leave target files and directories untouched |
 | `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing the symlinks |
 | `slink scan [directory ...]` | Find symlinks directly inside the specified directories; defaults to the working directory |
 
-`check` and `fix` process all registrations if no symlink is specified. `remove` and `adopt` require explicit symlink paths.
+`check` and `fix` process all registrations if no symlink is specified. `unregister`, `remove`, and `adopt` require explicit symlink paths.
 
 ### If the location already exists `slink -f <target> <link>`
 
@@ -138,7 +140,7 @@ Write one `[[link]]` block per registration, containing only the string fields `
 | Add an entry | `fix` can create the missing symlink |
 | Delete the whole entry | The symlink remains and is no longer included in `list`, `check`, or `fix` |
 
-To delete a symlink and its registration, use `remove` before deleting the entry. `remove -k` only unregisters it. To update a registration to match a manually changed symlink, use `adopt`.
+Use `unregister` to stop managing a symlink while keeping it in place. To delete both the symlink and its registration, use `remove` before deleting the entry. To update a registration to match a manually changed symlink, use `adopt`.
 
 If the registry file is itself a symlink, slink updates the file it points to.
 
@@ -149,8 +151,7 @@ If the registry file is itself a symlink, slink updates the file it points to.
 | `-c` | `--config` | Print the registry file's location |
 | `-f` | `--force` | Create/`fix`: replace existing symlinks with different targets |
 | `-p` | `--parents` | Create/`fix`: create missing parent directories for symlinks |
-| `-n` | `--dry-run` | Create/`fix`/`remove`/`adopt`: preview changes without writing |
-| `-k` | `--keep-link` | `remove`: unregister only |
+| `-n` | `--dry-run` | Create/`fix`/`unregister`/`remove`/`adopt`: preview changes without writing |
 | `-R` | `--recursive` | `scan`: include subdirectories |
 | `-o` | `--format <human\|tsv>` | `list`/`check`/`scan`: choose the output format |
 | `-h` | `--help` | Show help |
@@ -187,7 +188,7 @@ Symlink locations under your home directory are abbreviated as `~/…`. To disab
 
 ### Changes and previews
 
-Creating, registering, removing, or restoring a symlink displays its location and the result, followed by the registered target on the next line.
+Creating, registering, unregistering, removing, or restoring a symlink displays its location and the result, followed by the registered target on the next line.
 
 `fix` displays changed symlinks and symlinks with target problems, and summarizes healthy unchanged symlinks by count. For example, restoring one missing symlink while leaving 22 healthy symlinks unchanged produces:
 
