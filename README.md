@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-A macOS CLI for creating and managing symbolic links with one hand-editable TOML registry.
+A macOS CLI for creating and managing symbolic links (symlinks) using a TOML file.
 
 ## Install
 
@@ -18,23 +18,23 @@ cd slink
 cargo install --path . --locked
 ```
 
-Successful macOS CI jobs also provide a release executable as an Actions artifact. macOS is the supported user platform; Linux CI tests the portable logic. Release maintenance is described in [Homebrew releases](docs/homebrew.md).
+## Quick start `slink <target> <link>`
 
-## Quick start
-
-Both operands start from your working directory. slink converts them to absolute paths before storing them.
+`<target>` is the path to point to, and `<link>` is where to create the symlink. Relative paths are interpreted from the directory in which you run the command (the working directory).
 
 ```sh
-cd /Users/you
+cd ~
 slink -p dotfiles/nvim .config/nvim
-slink list
-slink check
-slink fix -n
 ```
 
-This creates `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`, and registers it. `-p` creates the missing parent directory `.config`; it does not create the target. A regular file or directory already at `.config/nvim` is left untouched and reported as a conflict.
+If your home directory is `/Users/you`, this command works as follows:
 
-The registry contains:
+- It creates `/Users/you/.config/nvim`, pointing to `/Users/you/dotfiles/nvim`, and records it in the registry file.
+- `-p` creates the parent directory `.config` if needed. It does not create the target `dotfiles/nvim`.
+- A regular file or directory already at `.config/nvim` is left untouched and reported as a conflict. The command does not create a symlink inside an existing directory.
+- The target can itself be a symlink. In that case, slink still registers the path you specified as the target.
+
+The registry file contains:
 
 ```toml
 [[link]]
@@ -42,11 +42,23 @@ link = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
 
-Missing targets are allowed and reported. `check` returns a problem until the target becomes reachable.
+To view the registrations:
+
+```sh
+slink list
+```
+
+To check that the symlinks match their registrations and their targets are reachable:
+
+```sh
+slink check
+```
+
+You can create a symlink to a target that does not exist, but `check` reports a problem until the target becomes reachable.
 
 ## Commands
 
-```sh
+```text
 slink [options] <target> <link>
 slink --config
 slink list
@@ -57,76 +69,43 @@ slink adopt [options] <link ...>
 slink scan [options] [directory ...]
 ```
 
-| Command | Responsibility |
+| Command | Purpose |
 | --- | --- |
-| `slink <target> <link>` | Make the link and registry agree with the CLI arguments |
-| `slink --config` | Print the registry path without creating a file or directory |
-| `slink list` | Display registry entries without path validation or filesystem inspection; human output may shorten link locations for display |
-| `slink check [link ...]` | Validate registry paths, compare registered and actual references, and check target availability |
-| `slink fix [link ...]` | Restore links from the registry; changing an existing different symlink requires `-f` |
-| `slink remove <link ...>` | Delete matching registered links and unregister them; never delete their targets |
-| `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing those symlinks |
-| `slink scan [directory ...]` | Discover links directly inside the directories; default directory is the working directory |
+| `slink <target> <link>` | Create a symlink to the specified target and add or update its registration |
+| `slink --config` | Print the registry file's location |
+| `slink list` | Display registrations without inspecting symlinks |
+| `slink check [link ...]` | Compare symlinks with their registrations and check whether their targets are reachable |
+| `slink fix [link ...]` | Restore symlinks from the registry; replacing an existing symlink with a different target requires `-f` |
+| `slink remove <link ...>` | Delete symlinks that match their registrations and unregister them; leave target files and directories untouched |
+| `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing the symlinks |
+| `slink scan [directory ...]` | Find symlinks directly inside the specified directories; defaults to the working directory |
 
-`check` and `fix` select all registrations if no link is specified. `remove` and `adopt` require explicit link paths. Deleting a registry entry by hand only unregisters the link; it does not delete the actual link.
+`check` and `fix` process all registrations if no symlink is specified. `remove` and `adopt` require explicit symlink paths.
 
-### Existing link locations
+### If the location already exists `slink -f <target> <link>`
 
-The second operand is always the exact location of the link. slink never appends the target's filename or creates a link inside an existing destination directory.
-
-| Object at the link location | Normal creation | Creation with `-f` |
+| What exists at the location | Normal creation | Creation with `-f` |
 | --- | --- | --- |
-| Nothing | Create the link; add or update its registration | Same |
-| A symlink with a matching reference path | Keep the symlink; add or update its registration | Same |
-| A symlink with a different reference path | Report a conflict and suggest `-f` | Replace the symlink; add or update its registration |
-| A regular file, directory, or other filesystem object | Report a conflict and preserve it | Same |
-
-This works for both registered and unregistered symlinks. When the symlink and registration already match, the command reports `unchanged`.
-
-```sh
-slink -f ~/dotfiles/git/.gitconfig ~/.gitconfig
-```
-
-Here the new target can itself be a symlink. slink keeps that reference instead of replacing it with the chain's final destination.
+| Nothing | Create the symlink; add or update its registration | Same |
+| A symlink with a matching target path | Keep the symlink; add or update its registration | Same |
+| A symlink with a different target path | Report a conflict | Replace the symlink; add or update its registration |
+| A regular file, directory, or other object | Report a conflict and leave it untouched | Same |
 
 ## Paths
 
-| Term | Meaning |
-| --- | --- |
-| link | The location at which a symbolic link is placed |
-| registered target | The absolute reference path saved in the registry |
-| actual target | The text read from the existing symlink; this can be relative |
-| working directory | The directory in which the command runs |
-
 | Input or stored value | Rule |
 | --- | --- |
-| Every CLI path | Absolute paths, working-directory-relative paths, and leading `~/` are accepted and converted to absolute paths |
-| Registry `link` and `target` | Absolute paths only, including hand edits |
-| Newly created or restored symlink target | Absolute path |
+| Paths passed to commands | Absolute paths, paths relative to the working directory, and leading `~/` are accepted and converted to absolute paths |
+| Registry `link` / `target` | The symlink's location / target path. Both must be absolute paths, including when edited by hand |
+| Targets of newly created or restored symlinks | Set using absolute paths |
 
-`~/` is an input abbreviation only. The shell normally expands it first; slink also accepts it when quoted. The registry does not expand `~`, variables, or shell expressions.
+You can also pass quoted `"~/…"` paths to commands. The registry does not expand `~`, variables, or shell expressions.
 
-During path conversion, redundant `.` components are removed. A `..` component is simplified only when its preceding path is known to be an ordinary directory; symlink, missing, or inaccessible components are preserved. Target suffixes such as `/` and `/.` retain their directory requirement. Target symlinks are never replaced with their final destinations during conversion. Distinct reference paths can remain different even when they eventually reach the same file.
+### Register an existing symlink that uses a relative path with `adopt`
 
-For example, a registry can record the first link in this chain while the target is itself another symlink:
+`adopt` converts a relative path read from an existing symlink to an absolute path, using the directory containing the symlink as its base, and registers it.
 
-```mermaid
-flowchart TD
-    R["links.toml"]
-    L["/Users/you/.gitconfig"]
-    T["/Users/you/dotfiles/git/.gitconfig"]
-    F["/Users/you/store/.gitconfig"]
-    R -. "link" .-> L
-    R -. "target" .-> T
-    L --> T
-    T --> F
-```
-
-### Adopting relative symlinks
-
-`adopt` reads an existing relative target from the directory that physically contains the link, converts that reference to an absolute path, and saves it. The existing symlink is not rewritten. Text read from a symlink is OS data, so a literal `~` there is not expanded.
-
-For a link `/Users/you/bin/python3` containing `python`, `adopt` saves `/Users/you/bin/python` as the registered target. `check` and `fix` use the same conversion to compare the actual and registered targets. A matching relative link stays as it is. If the link is removed, `fix` restores it with an absolute target; the original relative spelling is not preserved.
+For example, if `/Users/you/bin/python3` points to `python`, the registry stores `/Users/you/bin/python`.
 
 ```sh
 slink adopt ~/bin/python3
@@ -134,82 +113,83 @@ slink check ~/bin/python3
 slink fix ~/bin/python3
 ```
 
+`check` and `fix` also convert the target path to an absolute path before comparing it with the registration. A matching symlink is left untouched. If the symlink has been deleted, `fix` recreates it using an absolute path for its target.
+
 ## Registry file
 
-The registry is `$XDG_CONFIG_HOME/slink/links.toml` when `XDG_CONFIG_HOME` is an absolute path. If it is unset, empty, or relative, such as `config` or `./config`, slink uses `~/.config/slink/links.toml`. Creation or adoption initializes the registry when needed. `scan` can run before it exists.
+The registry is normally `~/.config/slink/links.toml`. If `XDG_CONFIG_HOME` is set to an absolute path, slink uses `$XDG_CONFIG_HOME/slink/links.toml` instead. An unset, empty, or relative value uses the default location.
 
-Open the registry to view or edit it:
+Creating a symlink or running `adopt` creates the registry file if needed. `scan` can run without a registry file.
+
+To open the registry for viewing or editing:
+
 ```sh
 open "$(slink --config)"
 ```
 
-One registration is one complete `[[link]]` block, with exactly two string fields: `link` and `target`. Both values must be absolute paths. An empty file represents no registrations.
+Write one `[[link]]` block per registration, containing only the string fields `link` and `target`. Both must be absolute paths. An empty file represents no registrations.
 
-`list` displays entries in file order, including invalid paths and duplicate registrations. It does not validate paths or inspect the filesystem. TSV output emits the stored `link` and `target` strings verbatim. Human output keeps the stored target string but may abbreviate a link under the home directory as `~/…` and remove redundant `.` components from the displayed link location. For example, if you hand-edit `links.toml` and enter `target = "mytarget"`, the entry remains visible even though this target is invalid because it is not an absolute path. `check`, `scan`, and mutation commands validate the entire registry before inspecting or changing links and reject such values. Path errors identify the registry file, entry number, and invalid field.
-
-All commands that read registrations, including `list`, require valid TOML and the entry structure above. A syntax error, missing field, non-string value, or unknown field prevents the file from being read; no partial list is printed.
+`list` displays registrations in file order, including entries with invalid paths or duplicate registrations. Use `check` to validate them. `check`, `scan`, and commands that make changes validate paths and check for duplicates across the entire registry. Invalid TOML syntax or entry structure prevents even `list` from reading the file.
 
 | Hand edit | Effect |
 | --- | --- |
-| Add an entry | `fix` can create the missing link |
-| Change `target` | `fix -f` can update an existing different symlink |
-| Delete the whole entry | The link remains and is no longer included in list, check, or fix |
-| Change `link` | The old link remains unregistered; `fix` can create the new link |
+| Change `link` | The old symlink remains unregistered; `fix` can create the new symlink |
+| Change `target` | `fix -f` can update an existing symlink's target |
+| Add an entry | `fix` can create the missing symlink |
+| Delete the whole entry | The symlink remains and is no longer included in `list`, `check`, or `fix` |
 
-To delete a link and its registration, use `remove` while the entry still exists. `remove -k` leaves the actual link in place. `adopt` updates an existing registration to match a manually changed symlink.
+To delete a symlink and its registration, use `remove` before deleting the entry. `remove -k` only unregisters it. To update a registration to match a manually changed symlink, use `adopt`.
 
-CLI edits preserve comments, ordering, and line endings, and leave unrelated values unchanged. If the registry file is a symlink, slink updates its referenced regular file and preserves the registry symlink.
+If the registry file is itself a symlink, slink updates the file it points to.
 
 ## Options
 
-| Short | Long | Applies to |
+| Short | Long | Purpose |
 | --- | --- | --- |
-| `-c` | `--config` | Print the registry path only |
-| `-f` | `--force` | Create/fix: replace different symlinks |
-| `-p` | `--parents` | Create/fix: create missing link parent directories |
-| `-n` | `--dry-run` | Mutation commands: preview without writing |
-| `-k` | `--keep-link` | Remove: unregister only |
-| `-R` | `--recursive` | Scan: recurse into ordinary subdirectories |
-| `-o` | `--format <human\|tsv>` | List/check/scan: output format |
-| `-h` | `--help` | Help |
-| `-V` | `--version` | Version |
+| `-c` | `--config` | Print the registry file's location |
+| `-f` | `--force` | Create/`fix`: replace existing symlinks with different targets |
+| `-p` | `--parents` | Create/`fix`: create missing parent directories for symlinks |
+| `-n` | `--dry-run` | Create/`fix`/`remove`/`adopt`: preview changes without writing |
+| `-k` | `--keep-link` | `remove`: unregister only |
+| `-R` | `--recursive` | `scan`: include subdirectories |
+| `-o` | `--format <human\|tsv>` | `list`/`check`/`scan`: choose the output format |
+| `-h` | `--help` | Show help |
+| `-V` | `--version` | Show the version |
 
-Short flags can be combined, such as `-np`. Formats accept `-o tsv`, `-otsv`, `--format tsv`, or `--format=tsv`. Information options (`--config`, `--help`, `--version`) must be used on their own. Invalid combinations are rejected before any changes.
+Short flags can be combined, such as `-np`. Use `--config`, `--help`, and `--version` on their own.
 
-`--` ends option and command-name parsing:
+To pass a path with the same name as a command or option, put `--` before it:
 
 ```sh
 slink -- list ./list-link
 slink check -- -link
 ```
 
-The first command uses the file `list` in the working directory as its target. The second checks the registered link named `-link`. Ordinary paths such as `./list-link` do not need `--` after a command.
+The first command uses the file `list` in the working directory as its target. The second checks the registered symlink named `-link`.
 
-Parent creation, replacement, dry-run, keeping removed links, and recursive scanning are opt-in. Newly created links are always registered; missing targets are allowed and reported. See [default decisions](docs/defaults.md).
-
-## Scan and output
+## Find symlinks with `scan`
 
 ```sh
 slink scan
 slink scan -R ~/projects
 slink scan ~/links
-slink list -o tsv
-slink check -o tsv
 ```
 
-Scan is shallow unless `-R` is specified. With no directory operand, the working directory is used: `slink scan` is equivalent to `slink scan .`, and `slink scan -R` is equivalent to `slink scan -R .`. Recursive scans include ordinary subdirectories. Directory symlinks are displayed but never traversed. A scan root that is itself a symlink is rejected, including when written with a trailing slash. Duplicate or overlapping roots do not duplicate links.
+`scan` searches directly inside the specified directories. It defaults to the working directory when none is specified. Add `-R` to include subdirectories. Symlinks to directories are displayed, but their contents are not scanned. You also cannot use a symlink as a starting directory.
 
-Management is determined by each link's location. Links at different locations are separate registrations, even if they point to the same target. Registering a link to a directory does not register links inside that directory. `check` inspects registered links; `scan` discovers links within its search scope, including unmanaged ones.
+While `check` inspects registered symlinks, `scan` can also find unregistered ones. Use `adopt` to register a symlink you find. Registering a symlink to a directory does not register symlinks inside that directory.
 
-Human output groups scan results into managed and unmanaged links, with problems first. A healthy `check` prints only `OK N links`. Human link locations under the home directory may display as `~/…`; registry values stay absolute. Targets are quoted and control characters escaped. Colors are enabled only on a terminal, and disabled by `NO_COLOR` or `TERM=dumb`.
+## Output
+
+The default `human` format groups `scan` results into registered and unregistered symlinks, with problems first in each group. When `check` finds no problems, it prints `OK N links`.
+
+Symlink locations under your home directory are abbreviated as `~/…`. To disable colors, set the `NO_COLOR` environment variable or use `TERM=dumb`.
 
 ### Changes and previews
 
-Creation, adoption, removal, fix, and recovery show a link's location, an action such as `created`, `registered`, `removed`, or `unchanged`, and the registered target on the next line. Parent directory creation appears as an additional detail. Completion is reported after the operation succeeds.
+Creating, registering, removing, or restoring a symlink displays its location and the result, followed by the registered target on the next line.
 
-`fix` displays changed links and links with target problems, and summarizes healthy unchanged links by count. When several selected links depend on one another, their registry order does not define the mutation semantics: dependencies are processed first where possible. Target warnings are evaluated after the selected fix batch, so a target that is temporarily missing only because another selected link has not yet been restored does not produce a transient warning. Explicit operands still define the selected set; `fix` does not silently add an unselected dependency.
-
-For example, restoring one missing link while leaving 22 healthy links unchanged produces:
+`fix` displays changed symlinks and symlinks with target problems, and summarizes healthy unchanged symlinks by count. For example, restoring one missing symlink while leaving 22 healthy symlinks unchanged produces:
 
 ```text
 ✓ ~/links/example.txt — created
@@ -218,7 +198,7 @@ For example, restoring one missing link while leaving 22 healthy links unchanged
 1 changed, 22 unchanged
 ```
 
-Running `slink fix -n` previews the same operation:
+Running `slink fix -n` previews the same operation without writing:
 
 ```text
 ○ ~/links/example.txt — would create
@@ -229,55 +209,68 @@ Running `slink fix -n` previews the same operation:
 
 `fix -n` predicts whether targets will be reachable after all selected symlinks have been restored.
 
-`✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or failure. A target problem is shown even when the link is unchanged. Recoveries use labels such as `recovered creation` and `would recover creation`.
+`✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or a failed operation.
 
-Fix and operations processing multiple links end with counts of changed, unchanged, and failed entries; failed counts appear when nonzero. A changed entry can mean a filesystem change, a registration change, or both. Target issues are counted separately and do not make a completed mutation fail. Results and target warnings go to stdout; operation errors include the link and reason on stderr. Counts cover processed entries.
+`changed` counts entries whose symlink or registration changed; `unchanged` counts entries that needed no change. Failures are counted when present. Target problems are counted separately from failures to create or restore symlinks.
 
 ### TSV
 
-TSV has a header and one row per link:
+Use `-o tsv` to process output in scripts:
+
+```sh
+slink list -o tsv
+slink check -o tsv
+slink scan -o tsv
+```
+
+Output has a header and one row per symlink.
 
 | Command | Columns in order |
 | --- | --- |
-| list | `LINK`, `TARGET` |
-| check | `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
-| scan | `MANAGEMENT`, `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
+| `list` | `LINK`, `TARGET` |
+| `check` | `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
+| `scan` | `MANAGEMENT`, `LINK`, `LINK_STATE`, `TARGET`, `TARGET_STATE`, `ACTUAL_TARGET`, `ACTUAL_TARGET_STATE` |
 
-Path/target cells are JSON strings, optional absent cells are empty, and diagnostic reasons go to stderr. `list` contains the stored strings without path conversion. In `check` and managed `scan` rows, `TARGET` is the registered absolute target and `TARGET_STATE` describes its availability; `ACTUAL_TARGET` is the text read from the symlink and `ACTUAL_TARGET_STATE` describes the referenced target's availability. A matching adopted link can therefore have different text in `TARGET` and `ACTUAL_TARGET`. An unmanaged `scan` row has no registered target, so `LINK_STATE`, `TARGET`, and `TARGET_STATE` are empty while the `ACTUAL_TARGET` columns describe the discovered symlink. Emitted filesystem path cells remove redundant `.` components, so paths such as `/Users/you/./links/item` are displayed as `/Users/you/links/item`.
+| Column | Contents |
+| --- | --- |
+| `MANAGEMENT` | Whether the symlink is registered |
+| `LINK` | The symlink's location |
+| `LINK_STATE` | Whether the symlink matches its registration |
+| `TARGET` | The target path saved in the registry |
+| `TARGET_STATE` | Whether the registered target is reachable |
+| `ACTUAL_TARGET` | The target path read from the actual symlink; it may be relative |
+| `ACTUAL_TARGET_STATE` | Whether the actual symlink's target is reachable |
 
-## Safety and recovery
+Path cells are JSON strings, and absent values are empty cells. `list` outputs the strings stored in the registry without changing them. In `check` and registered `scan` rows, `TARGET` is an absolute path. A matching symlink can have different text in `TARGET` and `ACTUAL_TARGET`, for example after adopting a symlink that uses a relative path.
 
-Force replaces symlinks only. Remove deletes matching registered symlinks only, and never deletes their targets. Direct self-references are rejected during creation/restoration.
+For unregistered `scan` rows, `LINK_STATE`, `TARGET`, and `TARGET_STATE` are empty, and `ACTUAL_TARGET` shows the actual target path.
 
-You cannot manage both a symlink and another symlink beneath it, such as `~/config` and `~/config/nvim`. Manage either the parent symlink or the symlinks beneath it. A symlink location also cannot be the registry file, a lock or recovery file, a parent directory of those files, or a path beneath them.
+Results go to standard output (stdout), and error reasons go to standard error (stderr).
 
-Paths and target text must be valid UTF-8.
+## Limitations and recovery
 
-Mutations lock the registry, detect concurrent edits, and save it atomically. Filesystem changes share a plan with dry-run. If creation, removal, or replacement is interrupted, repeating the same command with the same target and options resumes the operation. `check` reports pending recovery. A different command cannot take over an incomplete operation.
+Even with `-f`, regular files and directories cannot be replaced with symlinks. A symlink that points directly to itself cannot be created or restored.
 
-The registry can have adjacent `.slink-lock` and `.slink-pending` files, and replacement/removal can leave temporary `.slink-*` recovery directories. Preserve these until recovery completes. Completed batch items remain completed if another item fails; there is no whole-batch atomicity or unconditional power-loss guarantee.
+You cannot manage both a symlink and another symlink beneath it, such as `~/config` and `~/config/nvim`. Manage either the parent symlink or the symlinks beneath it.
+
+A symlink cannot occupy the location of the registry file or its lock or recovery files. Directories containing those files also cannot be managed as symlinks. For example, if you use `~/.config/slink/links.toml`, you cannot manage `~/.config/slink` itself. Paths must be representable in UTF-8.
+
+If creation, removal, or replacement is interrupted, repeat the same command with the same arguments and options to recover. Use `check` to see whether an operation is incomplete. Other changes are blocked until recovery completes.
+
+Keep any lock or recovery files next to the registry (such as `links.toml.slink-lock` and `links.toml.slink-pending`) and temporary `.slink-*` recovery directories until recovery is complete.
+
+When processing multiple symlinks, a failure does not undo changes that have already completed.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | The operation completed; check found all selected entries healthy |
-| 1 | Check found a problem, an item failed/conflicted, or scan could not complete an inspection |
-| 2 | Invalid arguments/registry, unavailable registry, or blocked recovery |
+| 0 | The operation completed; for `check`, all selected symlinks are healthy |
+| 1 | `check` found a problem, an operation failed or conflicted, or `scan` could not complete an inspection |
+| 2 | Invalid arguments or registry, an unavailable registry, blocked recovery, or another command error |
 
-`list` returns 0 when it can read and display the entries, even if their paths are invalid. This does not mean the registry or links passed a check. `check` returns 2 for invalid registry values, and 1 for problems with the actual links or their targets.
+`list` returns 0 when it can read and display registrations. Use `check` to find out whether paths and symlinks are valid.
 
-Successful creation/fix returns 0 even with a missing target; check returns 1 for it. Scan returns 1 for permission/I/O failures, but does not fail merely because it discovers missing or unresolvable targets. Fix without `-f` returns 1 if a different symlink remains unrepaired.
+Successful creation or `fix` returns 0 even if the target does not exist. `check` returns 1 for problems with symlinks or their targets, and 2 for invalid registry values.
 
-A closed stdout pipe stops further output without a panic; the operation keeps its normal exit status. Other stdout write errors return 2.
-
-## Development
-
-```sh
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked --release
-```
-
-Integration tests run the executable with an isolated home and config directory. They cover interruption/recovery, path references, registry edits, output, and scan depth. macOS CI also verifies case-sensitive and case-insensitive APFS. Failure injection is compiled only into debug builds; release executables ignore the test crash variable.
+`scan` returns 1 for permission or I/O errors, but does not fail merely because it finds symlinks whose targets are missing. Trying to fix a symlink with a different target without `-f` returns 1.
