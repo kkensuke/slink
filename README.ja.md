@@ -38,7 +38,7 @@ slink -p dotfiles/nvim .config/nvim
 
 ```toml
 [[link]]
-link = "/Users/you/.config/nvim"
+link   = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
 

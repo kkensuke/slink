@@ -38,7 +38,7 @@ The registry file contains:
 
 ```toml
 [[link]]
-link = "/Users/you/.config/nvim"
+link   = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
 
