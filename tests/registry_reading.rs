@@ -3,6 +3,46 @@ use std::{fs, os::unix::fs::symlink};
 use support::Fixture;
 
 #[test]
+fn new_entries_align_keys_and_existing_entries_keep_their_formatting() {
+    for newline in ["\n", "\r\n"] {
+        let f = Fixture::new();
+        f.write("source", "one");
+        f.write("other", "two");
+        symlink("other", f.path("manual")).unwrap();
+        let original = format!(
+            "# hand edited\n[[link]]\nlink = '{}' # location\ntarget    = {:?}\n",
+            f.path("manual").display(),
+            f.path("source").to_str().unwrap(),
+        )
+        .replace('\n', newline);
+        f.write_registry(&original);
+
+        f.ok(&["adopt", "manual"]);
+        let updated = original.replace(
+            f.path("source").to_str().unwrap(),
+            f.path("other").to_str().unwrap(),
+        );
+        assert_eq!(f.registry(), updated);
+
+        f.ok(&["source", "created"]);
+        symlink("source", f.path("adopted")).unwrap();
+        f.ok(&["adopt", "adopted"]);
+        let registry = f.registry();
+        assert!(registry.starts_with(&updated));
+        for name in ["created", "adopted"] {
+            assert!(registry.contains(&format!(
+                "link   = {:?}{newline}target = {:?}{newline}",
+                f.path(name).to_str().unwrap(),
+                f.path("source").to_str().unwrap(),
+            )));
+        }
+        if newline == "\r\n" {
+            assert!(!registry.replace("\r\n", "").contains('\n'));
+        }
+    }
+}
+
+#[test]
 fn empty_and_hand_written_registries_need_no_version() {
     let f = Fixture::new();
     for text in ["", "# no entries\n"] {
