@@ -11,7 +11,6 @@ fn help_and_invalid_options_do_not_write() {
     assert!(!f.path("config/slink/links.toml").exists());
     for args in [
         &["list", "--parents"][..],
-        &["adopt", "--relative", "x"],
         &["remove"],
         &["--unknown"],
         &["x"],

@@ -152,7 +152,7 @@ impl MutationOutput {
             let results = std::mem::take(&mut self.deferred);
             for result in &results {
                 let health = if self.dry_run {
-                    projected_health_for(result, &results)
+                    Some(projected_health_for(result, &results))
                 } else {
                     observed_health(result)
                 };
@@ -212,15 +212,9 @@ fn observed_health(result: &MutationResult) -> Option<inspect::TargetHealth> {
 fn projected_health_for(
     result: &MutationResult,
     results: &[MutationResult],
-) -> Option<inspect::TargetHealth> {
-    if matches!(
-        result.action,
-        MutationAction::Remove | MutationAction::Unregister
-    ) {
-        return None;
-    }
+) -> inspect::TargetHealth {
     let target = paths::target_path(&result.link, &result.target);
-    Some(projected_health(&target, results, &mut HashSet::new()))
+    projected_health(&target, results, &mut HashSet::new())
 }
 
 fn projected_key(path: &Path) -> String {
@@ -235,12 +229,10 @@ fn projected_link_at<'a>(
     ancestors.reverse();
     for ancestor in ancestors {
         let key = projected_key(ancestor);
-        if let Some(result) = results.iter().find(|result| {
-            !matches!(
-                result.action,
-                MutationAction::Remove | MutationAction::Unregister
-            ) && projected_key(&result.link) == key
-        }) {
+        if let Some(result) = results
+            .iter()
+            .find(|result| projected_key(&result.link) == key)
+        {
             let suffix = path
                 .strip_prefix(ancestor)
                 .expect("ancestor is a path prefix")

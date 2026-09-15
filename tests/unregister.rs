@@ -38,10 +38,16 @@ fn unregister_preserves_symlinks_files_and_directories() {
     assert_eq!(f.entries(), 0);
     assert_eq!(f.target("matching"), Path::new("source"));
     assert_eq!(f.target("different"), Path::new("other"));
-    assert_eq!(fs::symlink_metadata(f.path("matching")).unwrap().ino(), inode);
+    assert_eq!(
+        fs::symlink_metadata(f.path("matching")).unwrap().ino(),
+        inode
+    );
     assert!(fs::symlink_metadata(f.path("missing")).is_err());
     assert_eq!(fs::read_to_string(f.path("file")).unwrap(), "keep file");
-    assert_eq!(fs::read_to_string(f.path("directory/child")).unwrap(), "keep child");
+    assert_eq!(
+        fs::read_to_string(f.path("directory/child")).unwrap(),
+        "keep child"
+    );
     assert_eq!(fs::read_to_string(f.path("source")).unwrap(), "source data");
     assert_eq!(fs::read_to_string(f.path("other")).unwrap(), "other data");
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -85,7 +91,9 @@ fn failed_removal_keeps_the_registration_until_explicitly_unregistered() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(f.registry(), before);
     assert_eq!(f.target("link"), Path::new("different"));
-    assert!(String::from_utf8(output.stderr).unwrap().contains("use unregister"));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("use unregister"));
 
     f.ok(&["unregister", "link"]);
     assert_eq!(f.entries(), 0);

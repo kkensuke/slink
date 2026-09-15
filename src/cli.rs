@@ -141,13 +141,7 @@ impl Args {
             a.operands.push(s);
         }
         if let Some(command) = info {
-            if !first
-                || format_set
-                || a.dry_run
-                || a.parents
-                || a.force
-                || a.recursive
-            {
+            if !first || format_set || a.dry_run || a.parents || a.force || a.recursive {
                 bail!("--config, --help and --version take no other command, operands or options");
             }
             a.command = command;

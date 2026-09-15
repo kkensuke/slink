@@ -50,33 +50,39 @@ fn fix_summarizes_healthy_unchanged_links_but_keeps_target_problems_visible() {
 }
 
 #[test]
-fn previews_describe_parent_creation_and_replacement_without_writing() {
-    let f = Fixture::new();
-    f.write("source", "data");
-    let output = f.ok(&["-np", "source", "~/sub/link"]);
-    let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.starts_with("○ ~/sub/link — would create\n"));
-    assert!(text.contains("  parent: ~/sub (would create)\n"));
-    assert!(!f.path("home/sub").exists());
-    assert!(!f.path("config").exists());
+fn parent_creation_and_replacement_report_execution_and_preview() {
+    for source_exists in [true, false] {
+        let f = Fixture::new();
+        if source_exists {
+            f.write("source", "data");
+        }
+        let output = f.ok(&["-np", "source", "~/sub/link"]);
+        let text = String::from_utf8(output.stdout).unwrap();
+        let marker = if source_exists { "○" } else { "!" };
+        assert!(text.starts_with(&format!("{marker} ~/sub/link — would create")));
+        assert!(text.contains("  parent: ~/sub (would create)\n"));
+        assert!(!f.path("home/sub").exists());
+        assert!(!f.path("config").exists());
 
-    let output = f.ok(&["-p", "source", "~/sub/link"]);
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .contains("  parent: ~/sub (created)\n"));
-    f.write("other", "different");
-    let registry = f.registry();
-    let output = f.ok(&["-fn", "other", "~/sub/link"]);
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .starts_with("○ ~/sub/link — would replace\n"));
-    assert_eq!(f.registry(), registry);
-    assert_eq!(f.target("home/sub/link"), f.path("source"));
-    let output = f.ok(&["-f", "other", "~/sub/link"]);
-    assert!(String::from_utf8(output.stdout)
-        .unwrap()
-        .starts_with("✓ ~/sub/link — replaced\n"));
-    assert_eq!(f.target("home/sub/link"), f.path("other"));
+        let output = f.ok(&["-p", "source", "~/sub/link"]);
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("  parent: ~/sub (created)\n"));
+        assert!(!text.contains("(would create)"));
+        assert!(f.path("home/sub").is_dir());
+        f.write("other", "different");
+        let registry = f.registry();
+        let output = f.ok(&["-fn", "other", "~/sub/link"]);
+        assert!(String::from_utf8(output.stdout)
+            .unwrap()
+            .starts_with("○ ~/sub/link — would replace\n"));
+        assert_eq!(f.registry(), registry);
+        assert_eq!(f.target("home/sub/link"), f.path("source"));
+        let output = f.ok(&["-f", "other", "~/sub/link"]);
+        assert!(String::from_utf8(output.stdout)
+            .unwrap()
+            .starts_with("✓ ~/sub/link — replaced\n"));
+        assert_eq!(f.target("home/sub/link"), f.path("other"));
+    }
 }
 
 #[test]
