@@ -227,7 +227,7 @@ Running `slink fix -n` previews the same operation:
 1 change planned, 22 unchanged
 ```
 
-For target-health reporting, `fix -n` evaluates the projected final state rather than the unchanged current filesystem. Planned managed links are followed even when they occur inside a target path, so a target such as `A/child` can be evaluated as if the planned `A` link had already been restored.
+`fix -n` predicts whether targets will be reachable after all selected symlinks have been restored.
 
 `✓` marks a completed operation without a target warning, `○` marks a preview, and `!` marks a target warning or failure. A target problem is shown even when the link is unchanged. Recoveries use labels such as `recovered creation` and `would recover creation`.
 
@@ -247,7 +247,11 @@ Path/target cells are JSON strings, optional absent cells are empty, and diagnos
 
 ## Safety and recovery
 
-Force replaces symlinks only. Remove deletes matching registered symlinks only, and never deletes their targets. Direct self-references are rejected during creation/restoration. Nested managed link locations and destinations overlapping the registry or its control files are unsupported. Paths and target text must be valid UTF-8.
+Force replaces symlinks only. Remove deletes matching registered symlinks only, and never deletes their targets. Direct self-references are rejected during creation/restoration.
+
+You cannot manage both a symlink and another symlink beneath it, such as `~/config` and `~/config/nvim`. Manage either the parent symlink or the symlinks beneath it. A symlink location also cannot be the registry file, a lock or recovery file, a parent directory of those files, or a path beneath them.
+
+Paths and target text must be valid UTF-8.
 
 Mutations lock the registry, detect concurrent edits, and save it atomically. Filesystem changes share a plan with dry-run. If creation, removal, or replacement is interrupted, repeating the same command with the same target and options resumes the operation. `check` reports pending recovery. A different command cannot take over an incomplete operation.
 
