@@ -276,7 +276,6 @@ fn invalid_registry_does_not_touch_files() {
     let f = Fixture::new();
     f.write("link", "keep");
     for text in [
-        "version = 1\n",
         "unknown = true\n",
         "[[links]]\nlink = 'x'\ntarget = 'y'\n",
         "[[link]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",

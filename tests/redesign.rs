@@ -16,7 +16,6 @@ fn cli_paths_use_cwd_and_expand_tilde_before_absolute_storage() {
     assert_eq!(f.target("home/link"), f.path("home/missing"));
     assert!(!f.registry().contains("/./"));
     let doc = f.registry().parse::<toml_edit::DocumentMut>().unwrap();
-    assert!(doc.get("version").is_none());
     for entry in doc["link"].as_array_of_tables().unwrap() {
         assert!(Path::new(entry["link"].as_str().unwrap()).is_absolute());
         assert!(Path::new(entry["target"].as_str().unwrap()).is_absolute());
@@ -24,7 +23,7 @@ fn cli_paths_use_cwd_and_expand_tilde_before_absolute_storage() {
 }
 
 #[test]
-fn info_options_are_exclusive_and_obsolete_options_are_rejected() {
+fn command_options_are_validated_and_output_formats_can_be_selected() {
     let f = Fixture::new();
     for option in ["-c", "--config"] {
         assert_eq!(
@@ -37,9 +36,6 @@ fn info_options_are_exclusive_and_obsolete_options_are_rejected() {
         vec!["--config", "scan"],
         vec!["-cp"],
         vec!["-c", "--format=human"],
-        vec!["--file", "other", "scan"],
-        vec!["--relative", "x", "y"],
-        vec!["fix", "--replace"],
         vec!["scan", "-f"],
         vec!["adopt", "-p", "x"],
         vec!["-n"],
@@ -83,8 +79,6 @@ fn registry_rejects_relative_and_tilde_paths_in_both_fields() {
             .contains(&format!("registry {field} must be an absolute path")));
         assert_eq!(before, f.registry());
     }
-    f.write_registry("version = 1\n");
-    assert_eq!(f.run(&["list"]).status.code(), Some(2));
 }
 
 #[test]

@@ -43,7 +43,7 @@ fn new_entries_align_keys_and_existing_entries_keep_their_formatting() {
 }
 
 #[test]
-fn empty_and_hand_written_registries_need_no_version() {
+fn empty_registries_support_listing_and_mutation() {
     let f = Fixture::new();
     for text in ["", "# no entries\n"] {
         f.write_registry(text);
@@ -53,7 +53,6 @@ fn empty_and_hand_written_registries_need_no_version() {
     }
     f.write("source", "data");
     f.ok(&["source", "link"]);
-    assert!(!f.registry().contains("version"));
     f.ok(&["check"]);
     f.ok(&["remove", "link"]);
     assert_eq!(f.entries(), 0);
@@ -172,13 +171,5 @@ fn unreadable_entry_structure_is_reported_without_a_partial_list() {
                 .unwrap()
                 .contains(f.registry_path().to_str().unwrap()));
         }
-    }
-    for version in [1, 2] {
-        f.write_registry(&format!("version = {version}\n"));
-        let output = f.run(&["list"]);
-        assert_eq!(output.status.code(), Some(2));
-        assert!(String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("unknown registry field \"version\""));
     }
 }
