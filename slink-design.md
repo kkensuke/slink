@@ -1,6 +1,6 @@
 # slink の設計
 
-macOS 向けの managed symlink CLI。管理ファイルは手編集できる TOML とし、CLI・実物・管理ファイルのどれを正として更新するかで操作を分ける。
+macOS 向けの symbolic-link management CLI です。管理ファイルは手編集できる TOML とし、CLI・実物・管理ファイルのどれを正として更新するかで操作を分ける。
 
 ## パスと管理ファイル
 
