@@ -38,7 +38,7 @@ slink -p dotfiles/nvim .config/nvim
 
 ```toml
 [[link]]
-link = "/Users/you/.config/nvim"
+link   = "/Users/you/.config/nvim"
 target = "/Users/you/dotfiles/nvim"
 ```
 
@@ -64,6 +64,7 @@ slink --config
 slink list
 slink check [link ...]
 slink fix [options] [link ...]
+slink unregister [options] <link ...>
 slink remove [options] <link ...>
 slink adopt [options] <link ...>
 slink scan [options] [directory ...]
@@ -76,11 +77,12 @@ slink scan [options] [directory ...]
 | `slink list` | 登録内容を表示する。リンクの検査は行わない |
 | `slink check [link ...]` | 登録と実際のリンクを照合し、参照先へアクセスできるかを検査する |
 | `slink fix [link ...]` | 管理ファイルからリンクを復元する。参照先が異なる既存のリンクの置換には `-f` が必要 |
+| `slink unregister <link ...>` | 登録を解除する。リンクの配置先にあるものは変更しない |
 | `slink remove <link ...>` | 登録と一致するリンクを削除し、登録解除する。参照先のファイルやディレクトリは削除しない |
 | `slink adopt <link ...>` | 既存のリンクから登録を追加・更新する。リンク自体は変更しない |
 | `slink scan [directory ...]` | 指定ディレクトリ直下のリンクを探す。省略時は作業ディレクトリを使う |
 
-`check` と `fix` は、リンクを指定しなければ全登録を対象にします。`remove` と `adopt` はリンクの明示指定が必要です。
+`check` と `fix` は、リンクを指定しなければ全登録を対象にします。`unregister`・`remove`・`adopt` はリンクの明示指定が必要です。
 
 ### 配置先がすでに存在する場合 `slink -f <target> <link>`
 
@@ -138,7 +140,7 @@ open "$(slink --config)"
 | 項目を追加 | `fix` で不足するリンクを作成できる |
 | 項目全体を削除 | リンクは残り、`list`・`check`・`fix` の対象から外れる |
 
-リンクと登録を両方削除するには、項目を消す前に `remove` を使います。`remove -k` は登録だけを解除します。手で変更したリンクに管理ファイルの登録を合わせる場合は `adopt` を使います。
+リンクを残して管理をやめるには `unregister` を使います。リンクと登録を両方削除するには、項目を消す前に `remove` を使います。手で変更したリンクに管理ファイルの登録を合わせる場合は `adopt` を使います。
 
 管理ファイル自体がリンクの場合は、その参照先のファイルを更新します。
 
@@ -149,8 +151,7 @@ open "$(slink --config)"
 | `-c` | `--config` | 管理ファイルの場所を表示 |
 | `-f` | `--force` | 作成・`fix`：参照先が異なる既存のリンクを置換 |
 | `-p` | `--parents` | 作成・`fix`：不足するリンクの親ディレクトリを作成 |
-| `-n` | `--dry-run` | 作成・`fix`・`remove`・`adopt`：書き込まず変更予定を表示 |
-| `-k` | `--keep-link` | `remove`：登録だけを解除 |
+| `-n` | `--dry-run` | 作成・`fix`・`unregister`・`remove`・`adopt`：書き込まず変更予定を表示 |
 | `-R` | `--recursive` | `scan`：サブディレクトリも探索 |
 | `-o` | `--format <human\|tsv>` | `list`・`check`・`scan`：出力形式を指定 |
 | `-h` | `--help` | ヘルプを表示 |
@@ -187,7 +188,7 @@ slink scan ~/links
 
 ### 変更結果とプレビュー
 
-リンクの作成・登録・削除・復元では、配置先と操作結果を表示し、次の行に登録された参照先を示します。
+リンクの作成・登録・登録解除・削除・復元では、配置先と操作結果を表示し、次の行に登録された参照先を示します。
 
 `fix` は、変更したリンクと参照先に問題があるリンクを表示し、正常で変更不要なリンクは件数にまとめます。例えば、不足するリンク1件を復元し、正常な22件を変更しなかった場合は次のようになります。
 

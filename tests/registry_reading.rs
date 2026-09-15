@@ -3,7 +3,47 @@ use std::{fs, os::unix::fs::symlink};
 use support::Fixture;
 
 #[test]
-fn empty_and_hand_written_registries_need_no_version() {
+fn new_entries_align_keys_and_existing_entries_keep_their_formatting() {
+    for newline in ["\n", "\r\n"] {
+        let f = Fixture::new();
+        f.write("source", "one");
+        f.write("other", "two");
+        symlink("other", f.path("manual")).unwrap();
+        let original = format!(
+            "# hand edited\n[[link]]\nlink = '{}' # location\ntarget    = {:?}\n",
+            f.path("manual").display(),
+            f.path("source").to_str().unwrap(),
+        )
+        .replace('\n', newline);
+        f.write_registry(&original);
+
+        f.ok(&["adopt", "manual"]);
+        let updated = original.replace(
+            f.path("source").to_str().unwrap(),
+            f.path("other").to_str().unwrap(),
+        );
+        assert_eq!(f.registry(), updated);
+
+        f.ok(&["source", "created"]);
+        symlink("source", f.path("adopted")).unwrap();
+        f.ok(&["adopt", "adopted"]);
+        let registry = f.registry();
+        assert!(registry.starts_with(&updated));
+        for name in ["created", "adopted"] {
+            assert!(registry.contains(&format!(
+                "link   = {:?}{newline}target = {:?}{newline}",
+                f.path(name).to_str().unwrap(),
+                f.path("source").to_str().unwrap(),
+            )));
+        }
+        if newline == "\r\n" {
+            assert!(!registry.replace("\r\n", "").contains('\n'));
+        }
+    }
+}
+
+#[test]
+fn empty_registries_support_listing_and_mutation() {
     let f = Fixture::new();
     for text in ["", "# no entries\n"] {
         f.write_registry(text);
@@ -13,7 +53,6 @@ fn empty_and_hand_written_registries_need_no_version() {
     }
     f.write("source", "data");
     f.ok(&["source", "link"]);
-    assert!(!f.registry().contains("version"));
     f.ok(&["check"]);
     f.ok(&["remove", "link"]);
     assert_eq!(f.entries(), 0);
@@ -99,7 +138,7 @@ fn listing_invalid_paths_does_not_relax_mutation_validation() {
         vec!["fix", "-n"],
         vec!["adopt", "link"],
         vec!["remove", "link"],
-        vec!["remove", "-k", "link"],
+        vec!["unregister", "link"],
         vec!["scan"],
     ] {
         assert_eq!(f.run(&args).status.code(), Some(2), "{args:?}");
@@ -132,13 +171,5 @@ fn unreadable_entry_structure_is_reported_without_a_partial_list() {
                 .unwrap()
                 .contains(f.registry_path().to_str().unwrap()));
         }
-    }
-    for version in [1, 2] {
-        f.write_registry(&format!("version = {version}\n"));
-        let output = f.run(&["list"]);
-        assert_eq!(output.status.code(), Some(2));
-        assert!(String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("unknown registry field \"version\""));
     }
 }

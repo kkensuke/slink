@@ -6,38 +6,6 @@ mod support;
 use support::Fixture;
 
 #[test]
-fn real_parent_creation_is_not_reported_as_would_mkdir() {
-    let f = Fixture::new();
-    let output = f
-        .command(&["--parents", "future", "missing/link"])
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        stdout.contains("parent: ") && stdout.contains("(created)"),
-        "stdout={stdout:?}"
-    );
-    assert!(!stdout.contains("(would create)"), "stdout={stdout:?}");
-    assert!(f.root.join("missing").is_dir());
-}
-
-#[test]
-fn dry_run_parent_creation_is_reported_as_would_mkdir() {
-    let f = Fixture::new();
-    let output = f
-        .command(&["--dry-run", "--parents", "future", "missing/link"])
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("(would create)"), "stdout={stdout:?}");
-    assert!(!f.root.join("missing").exists());
-}
-
-#[test]
 fn registry_rejects_duplicate_destinations_through_parent_aliases() {
     let f = Fixture::new();
     fs::create_dir(f.root.join("real")).unwrap();

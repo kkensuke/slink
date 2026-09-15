@@ -13,7 +13,7 @@
 | Replace a different symlink | Off; `-f` / `--force` | Existing references can be intentional. Both create and fix use the same rule. |
 | Create link parent directories | Off; `-p` / `--parents` | A mistyped parent is reported instead of silently created. |
 | Simulate mutations | Off; `-n` / `--dry-run` | Mutation commands normally perform the requested operation. |
-| Keep a removed link | Off; `remove -k` / `--keep-link` | Remove normally deletes the managed link and unregisters it. |
+| Unregister a symlink | Keep the symlink | `unregister` changes only the registry; use `remove` to delete the symlink as well. |
 | Scan subdirectories | Off; `-R` / `--recursive` | The default scope is the selected directory's immediate children. |
 | Follow directory symlinks during scan | Never | A directory link is an entry to report, not a subtree to traverse. |
 | Preserve unrelated TOML values, comments and ordering | On | CLI edits coexist with hand edits. |

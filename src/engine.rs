@@ -70,7 +70,7 @@ pub fn run(args: Args) -> Result<u8> {
                     .iter()
                     .any(|s| paths::link_from_cli(s).is_ok_and(|x| x == p.link))
         };
-        if !same_request || !same_selection || args.keep_link {
+        if !same_request || !same_selection {
             bail!("incomplete operation; repeat the original operation with the same target and options before making other changes");
         }
         let recovery = if args.dry_run {
@@ -283,24 +283,30 @@ fn plan_adopt(r: &Registry, link: PathBuf) -> Result<Plan> {
     })
 }
 
-fn plan_remove(r: &Registry, args: &Args, entry: Entry) -> Result<Plan> {
+fn plan_unregister(r: &Registry, entry: Entry) -> Result<Plan> {
     let link = r.link(&entry)?;
     let after = r.render(&r.without(r.find(&link)?.context("not registered")?));
-    let change = if args.keep_link {
-        Change::Keep(None)
-    } else {
-        r.validate_destination(&link)?;
-        match inspect::snapshot(&link)? {
-            Some(old) => {
-                if !paths::target_matches(&link, &old.target, &entry.target)? {
-                    bail!(
-                        "target differs; link left untouched; use --keep-link to unregister only"
-                    );
-                }
-                Change::Remove(old)
+    Ok(Plan {
+        entry,
+        link,
+        change: Change::Keep(None),
+        after,
+        mkdir: false,
+    })
+}
+
+fn plan_remove(r: &Registry, entry: Entry) -> Result<Plan> {
+    let link = r.link(&entry)?;
+    let after = r.render(&r.without(r.find(&link)?.context("not registered")?));
+    r.validate_destination(&link)?;
+    let change = match inspect::snapshot(&link)? {
+        Some(old) => {
+            if !paths::target_matches(&link, &old.target, &entry.target)? {
+                bail!("target differs; link left untouched; use unregister to remove only the registration");
             }
-            None => Change::Keep(None),
+            Change::Remove(old)
         }
+        None => Change::Keep(None),
     };
     Ok(Plan {
         entry,
@@ -440,7 +446,7 @@ fn mutate_many(
         }
         let plan = match args.command {
             Command::Adopt => plan_adopt(r, link.clone()),
-            Command::Fix | Command::Remove => {
+            Command::Fix | Command::Remove | Command::Unregister => {
                 let entry = r.entries[r.find(&link)?.context("not registered")?].clone();
                 if args.command == Command::Fix {
                     plan_link(
@@ -449,8 +455,10 @@ fn mutate_many(
                         entry,
                         String::from_utf8(r.original.clone().context("missing registry")?)?,
                     )
+                } else if args.command == Command::Remove {
+                    plan_remove(r, entry)
                 } else {
-                    plan_remove(r, args, entry)
+                    plan_unregister(r, entry)
                 }
             }
             _ => unreachable!("validated mutation command"),

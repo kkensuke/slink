@@ -34,6 +34,7 @@ impl From<&Args> for Request {
                 Command::Create => "create",
                 Command::Fix => "fix",
                 Command::Remove => "remove",
+                Command::Unregister => "unregister",
                 _ => "adopt",
             }
             .into(),

@@ -243,6 +243,10 @@ impl Registry {
         let mut t = Table::new();
         t["link"] = value(&entry.link);
         t["target"] = value(&entry.target);
+        t.key_mut("link")
+            .expect("new link field")
+            .leaf_decor_mut()
+            .set_suffix("   ");
         doc["link"]
             .as_array_of_tables_mut()
             .expect("validated registry")

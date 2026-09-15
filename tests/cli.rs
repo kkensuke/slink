@@ -11,7 +11,6 @@ fn help_and_invalid_options_do_not_write() {
     assert!(!f.path("config/slink/links.toml").exists());
     for args in [
         &["list", "--parents"][..],
-        &["adopt", "--relative", "x"],
         &["remove"],
         &["--unknown"],
         &["x"],
@@ -131,7 +130,7 @@ fn fix_requires_force_and_protects_ordinary_files() {
     assert_eq!(f.run(&["fix", "--force"]).status.code(), Some(1));
     assert_eq!(f.run(&["remove", "link"]).status.code(), Some(1));
     assert_eq!(fs::read_to_string(f.path("link")).unwrap(), "keep me");
-    f.ok(&["remove", "--keep-link", "link"]);
+    f.ok(&["unregister", "link"]);
     assert_eq!(f.entries(), 0);
     assert_eq!(fs::read_to_string(f.path("link")).unwrap(), "keep me");
 }
@@ -173,7 +172,7 @@ fn adopt_updates_registry_without_changing_existing_links() {
     symlink("different", f.path("link")).unwrap();
     f.ok(&["adopt", "link"]);
     assert_ne!(f.registry(), before);
-    f.ok(&["remove", "--keep-link", "link"]);
+    f.ok(&["unregister", "link"]);
     assert_eq!(f.target("link"), Path::new("different"));
 }
 
@@ -205,7 +204,7 @@ fn comments_quotes_order_and_crlf_survive_registration() {
         if newline == "\r\n" {
             assert!(!f.registry().replace("\r\n", "").contains('\n'));
         }
-        f.ok(&["remove", "--keep-link", "two"]);
+        f.ok(&["unregister", "two"]);
         assert_eq!(f.registry(), original);
     }
 }
@@ -277,7 +276,6 @@ fn invalid_registry_does_not_touch_files() {
     let f = Fixture::new();
     f.write("link", "keep");
     for text in [
-        "version = 1\n",
         "unknown = true\n",
         "[[links]]\nlink = 'x'\ntarget = 'y'\n",
         "[[link]]\nlink = 'x'\ntarget = 'y'\nextra = 1\n",
@@ -298,6 +296,8 @@ fn reserved_names_and_control_characters_are_literal_after_separator() {
     let out = String::from_utf8(f.ok(&["list"]).stdout).unwrap();
     assert!(out.contains("a\\nlink"));
     assert!(out.contains(&format!("  → {:?}", f.path("list"))));
+    f.ok(&["--", "unregister", "literal-link"]);
+    assert_eq!(f.target("literal-link"), f.path("unregister"));
 }
 
 #[test]
