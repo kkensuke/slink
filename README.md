@@ -214,6 +214,23 @@ Running `slink fix -n` previews the same operation without writing:
 
 `changed` counts entries whose symlink or registration changed; `unchanged` counts entries that needed no change. Failures are counted when present. Target problems are counted separately from failures to create or restore symlinks.
 
+Human-readable entries start with the symlink's location and, when applicable, its state or operation result. Details are indented, and entries are separated by a blank line. Lists and operation results show a single target with `→`. Target mismatches use aligned `expected:` and `actual:` lines in that order, matching `check` and managed `scan` diagnostics. Detailed error explanations use `reason:`, and replacement guidance uses `hint:`.
+
+For example, if `fix` cannot replace a different target without `-f`:
+
+```text
+! ~/links/example.txt — failed: target differs
+  expected: "/Users/you/files/example.txt"
+  actual:   "/Users/you/Desktop/files/example.txt"
+  hint:     use --force (-f) to replace this symlink
+
+0 changed, 22 unchanged, 1 failed
+```
+
+Creation uses the same mismatch display. `expected` is the registered target for `fix`, or the requested target for creation; `actual` is the text read from the existing symlink and may be relative. Target paths keep their full text, with quotes and control characters escaped. `failed` distinguishes an unsuccessful operation from a completed operation with a target warning. Failure details go to stderr; the summary stays on stdout.
+
+`list` has no success markers because it displays registrations without inspecting links. Summary wording and placement follow each command's purpose.
+
 ### TSV
 
 Use `-o tsv` to process output in scripts:
