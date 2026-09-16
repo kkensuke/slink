@@ -50,6 +50,124 @@ fn fix_summarizes_healthy_unchanged_links_but_keeps_target_problems_visible() {
 }
 
 #[test]
+fn target_mismatch_failures_share_check_details_without_changing_links_or_registration() {
+    for relative in [false, true] {
+        let f = Fixture::new();
+        f.write("expected", "expected");
+        f.write("home/actual", "actual");
+        let actual = if relative {
+            "actual".to_owned()
+        } else {
+            f.path("home/actual").to_str().unwrap().to_owned()
+        };
+        symlink(&actual, f.path("home/link")).unwrap();
+        f.write_entries(&[("home/link", "expected")]);
+        f.ok(&["expected", "~/healthy"]);
+        let registry = f.registry();
+        let details = format!(
+            "  expected: {:?}\n  actual:   {actual:?}\n",
+            f.path("expected")
+        );
+
+        let check = f.run(&["check"]);
+        assert_eq!(check.status.code(), Some(1));
+        assert!(String::from_utf8(check.stdout).unwrap().contains(&details));
+        assert!(check.stderr.is_empty());
+        let scan = String::from_utf8(f.ok(&["scan", "home"]).stdout).unwrap();
+        let indented_details = details
+            .lines()
+            .map(|line| format!("  {line}\n"))
+            .collect::<String>();
+        assert!(scan.contains(&indented_details));
+
+        for (args, summary) in [
+            (vec!["fix"], "0 changed, 1 unchanged, 1 failed\n"),
+            (
+                vec!["fix", "-n"],
+                "0 changes planned, 1 unchanged, 1 failed\n",
+            ),
+            (vec!["expected", "~/link"], ""),
+            (vec!["-n", "expected", "~/link"], ""),
+        ] {
+            let output = f.run(&args);
+            assert_eq!(output.status.code(), Some(1), "{args:?}");
+            assert_eq!(String::from_utf8(output.stdout).unwrap(), summary);
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap(),
+                format!(
+                    "! ~/link — failed: target differs\n{details}  hint:     use --force (-f) to replace this symlink\n\n"
+                )
+            );
+            assert_eq!(f.target("home/link").to_str().unwrap(), actual);
+            assert_eq!(f.registry(), registry);
+        }
+    }
+}
+
+#[test]
+fn fix_force_keeps_preview_and_success_output_after_a_mismatch() {
+    let f = Fixture::new();
+    f.write("expected", "expected");
+    f.write("home/actual", "actual");
+    symlink("actual", f.path("home/link")).unwrap();
+    f.write_entries(&[("home/link", "expected")]);
+    let registry = f.registry();
+
+    let preview = f.ok(&["fix", "-fn"]);
+    assert!(preview.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(preview.stdout).unwrap(),
+        format!(
+            "○ ~/link — would replace\n  → {:?}\n\n1 change planned, 0 unchanged\n",
+            f.path("expected")
+        )
+    );
+    assert_eq!(f.target("home/link").to_str().unwrap(), "actual");
+    assert_eq!(f.registry(), registry);
+
+    let fixed = f.ok(&["fix", "-f"]);
+    assert!(fixed.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(fixed.stdout).unwrap(),
+        format!(
+            "✓ ~/link — replaced\n  → {:?}\n\n1 changed, 0 unchanged\n",
+            f.path("expected")
+        )
+    );
+    assert_eq!(f.target("home/link"), f.path("expected"));
+    assert_eq!(f.registry(), registry);
+}
+
+#[test]
+fn target_mismatch_paths_keep_quotes_backslashes_and_controls_unambiguous() {
+    let f = Fixture::new();
+    let expected = "expected\\n\"target";
+    let actual = "actual\n\t\u{1b}\u{7f}target";
+    symlink(actual, f.path("home/link\nname")).unwrap();
+    f.write_entries(&[("home/link\nname", expected)]);
+    let registry = f.registry();
+
+    let output = f.run(&["fix"]);
+    assert_eq!(output.status.code(), Some(1));
+    let error = String::from_utf8(output.stderr).unwrap();
+    let expected_path = serde_json::to_string(f.path(expected).to_str().unwrap()).unwrap();
+    assert_eq!(
+        error,
+        format!(
+            concat!(
+                "! ~/link\\nname — failed: target differs\n",
+                "  expected: {}\n",
+                "  actual:   \"actual\\n\\t\\u001b\\u007ftarget\"\n",
+                "  hint:     use --force (-f) to replace this symlink\n\n"
+            ),
+            expected_path
+        )
+    );
+    assert_eq!(f.target("home/link\nname").to_str().unwrap(), actual);
+    assert_eq!(f.registry(), registry);
+}
+
+#[test]
 fn parent_creation_and_replacement_report_execution_and_preview() {
     for source_exists in [true, false] {
         let f = Fixture::new();

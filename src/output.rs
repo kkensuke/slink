@@ -632,11 +632,15 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
     lines
 }
 
-fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &TargetHealth) {
+fn target_line(label: &str, target: &str) -> String {
     let separator = if label == "actual" { ":   " } else { ": " };
+    format!("  {label}{separator}{}", quoted(target))
+}
+
+fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &TargetHealth) {
     lines.push(format!(
-        "  {label}{separator}{}{}",
-        quoted(target),
+        "{}{}",
+        target_line(label, target),
         health.annotation()
     ));
     if let Some(reason) = health.reason() {
