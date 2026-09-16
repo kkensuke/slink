@@ -3,6 +3,20 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, os::unix::fs::MetadataExt, path::Path};
 
+#[derive(Debug)]
+pub struct TargetMismatch {
+    pub expected: String,
+    pub actual: String,
+}
+
+impl std::fmt::Display for TargetMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("target differs")
+    }
+}
+
+impl std::error::Error for TargetMismatch {}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub dev: u64,

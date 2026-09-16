@@ -234,7 +234,10 @@ fn plan_link(r: &Registry, args: &Args, entry: Entry, after: String) -> Result<P
     let change = match old {
         Some(old) if paths::target_matches(&link, &old.target, &entry.target)? => Change::Keep(Some(old)),
         Some(old) if args.force => Change::Replace(old),
-        Some(old) => bail!("target differs at {link:?}: actual {:?}, requested {:?}; use --force (-f) to replace this symlink", old.target, entry.target),
+        Some(old) => bail!(inspect::TargetMismatch {
+            expected: entry.target,
+            actual: old.target,
+        }),
         None => Change::Create,
     };
     let mut mkdir = false;
