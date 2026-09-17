@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-`slink` is a macOS CLI for safely creating and managing symbolic links (symlinks) using TOML files.
+`slink` is a macOS CLI for safely creating and managing symbolic links (symlinks) using a TOML file.
 
 ## Install
 
