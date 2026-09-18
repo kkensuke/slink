@@ -17,7 +17,11 @@ fn creation_adoption_and_removal_share_the_human_layout() {
         assert!(output.stderr.is_empty());
         assert_eq!(
             String::from_utf8(output.stdout).unwrap(),
-            format!("✓ ~/link — {label}\n  → {:?}\n", f.path("source"))
+            format!(
+                "✓ {:?} — {label}\n  → {:?}\n",
+                f.path("home/link"),
+                f.path("source")
+            )
         );
     }
     assert!(fs::symlink_metadata(f.path("home/link")).is_err());
@@ -36,9 +40,12 @@ fn fix_summarizes_healthy_unchanged_links_but_keeps_target_problems_visible() {
     let output = f.ok(&["fix"]);
     assert!(output.stderr.is_empty());
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(!text.contains("~/healthy"));
-    assert!(text.contains("✓ ~/missing — created\n"));
-    assert!(text.contains("! ~/broken — unchanged; target is missing\n"));
+    assert!(!text.contains(f.path("home/healthy").to_str().unwrap()));
+    assert!(text.contains(&format!("✓ {:?} — created\n", f.path("home/missing"))));
+    assert!(text.contains(&format!(
+        "! {:?} — unchanged; target is missing\n",
+        f.path("home/broken")
+    )));
     assert!(text.ends_with("1 changed, 2 unchanged, 1 target issue\n"));
 
     f.write("future", "data");
@@ -95,7 +102,8 @@ fn target_mismatch_failures_share_check_details_without_changing_links_or_regist
             assert_eq!(
                 String::from_utf8(output.stderr).unwrap(),
                 format!(
-                    "! ~/link — failed: target differs\n{details}  hint:     use --force (-f) to replace this symlink\n\n"
+                    "! {:?} — failed: target differs\n{details}  hint:     use --force (-f) to replace this symlink\n\n",
+                    f.path("home/link")
                 )
             );
             assert_eq!(f.target("home/link").to_str().unwrap(), actual);
@@ -118,7 +126,8 @@ fn fix_force_keeps_preview_and_success_output_after_a_mismatch() {
     assert_eq!(
         String::from_utf8(preview.stdout).unwrap(),
         format!(
-            "○ ~/link — would replace\n  → {:?}\n\n1 change planned, 0 unchanged\n",
+            "○ {:?} — would replace\n  → {:?}\n\n1 change planned, 0 unchanged\n",
+            f.path("home/link"),
             f.path("expected")
         )
     );
@@ -130,7 +139,8 @@ fn fix_force_keeps_preview_and_success_output_after_a_mismatch() {
     assert_eq!(
         String::from_utf8(fixed.stdout).unwrap(),
         format!(
-            "✓ ~/link — replaced\n  → {:?}\n\n1 changed, 0 unchanged\n",
+            "✓ {:?} — replaced\n  → {:?}\n\n1 changed, 0 unchanged\n",
+            f.path("home/link"),
             f.path("expected")
         )
     );
@@ -155,11 +165,12 @@ fn target_mismatch_paths_keep_quotes_backslashes_and_controls_unambiguous() {
         error,
         format!(
             concat!(
-                "! ~/link\\nname — failed: target differs\n",
+                "! {:?} — failed: target differs\n",
                 "  expected: {}\n",
                 "  actual:   \"actual\\n\\t\\u001b\\u007ftarget\"\n",
                 "  hint:     use --force (-f) to replace this symlink\n\n"
             ),
+            f.path("home/link\nname"),
             expected_path
         )
     );
@@ -177,14 +188,17 @@ fn parent_creation_and_replacement_report_execution_and_preview() {
         let output = f.ok(&["-np", "source", "~/sub/link"]);
         let text = String::from_utf8(output.stdout).unwrap();
         let marker = if source_exists { "○" } else { "!" };
-        assert!(text.starts_with(&format!("{marker} ~/sub/link — would create")));
-        assert!(text.contains("  parent: ~/sub (would create)\n"));
+        assert!(text.starts_with(&format!(
+            "{marker} {:?} — would create",
+            f.path("home/sub/link")
+        )));
+        assert!(text.contains(&format!("  parent: {:?} (would create)\n", f.path("home/sub"))));
         assert!(!f.path("home/sub").exists());
         assert!(!f.path("config").exists());
 
         let output = f.ok(&["-p", "source", "~/sub/link"]);
         let text = String::from_utf8(output.stdout).unwrap();
-        assert!(text.contains("  parent: ~/sub (created)\n"));
+        assert!(text.contains(&format!("  parent: {:?} (created)\n", f.path("home/sub"))));
         assert!(!text.contains("(would create)"));
         assert!(f.path("home/sub").is_dir());
         f.write("other", "different");
@@ -192,13 +206,13 @@ fn parent_creation_and_replacement_report_execution_and_preview() {
         let output = f.ok(&["-fn", "other", "~/sub/link"]);
         assert!(String::from_utf8(output.stdout)
             .unwrap()
-            .starts_with("○ ~/sub/link — would replace\n"));
+            .starts_with(&format!("○ {:?} — would replace\n", f.path("home/sub/link"))));
         assert_eq!(f.registry(), registry);
         assert_eq!(f.target("home/sub/link"), f.path("source"));
         let output = f.ok(&["-f", "other", "~/sub/link"]);
         assert!(String::from_utf8(output.stdout)
             .unwrap()
-            .starts_with("✓ ~/sub/link — replaced\n"));
+            .starts_with(&format!("✓ {:?} — replaced\n", f.path("home/sub/link"))));
         assert_eq!(f.target("home/sub/link"), f.path("other"));
     }
 }
@@ -216,11 +230,14 @@ fn failed_items_do_not_look_successful_and_batch_counts_reflect_results() {
     let output = f.run(&["fix", "-f"]);
     assert_eq!(output.status.code(), Some(1));
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("✓ ~/good — created\n"));
-    assert!(!text.contains("~/conflict"));
+    assert!(text.contains(&format!("✓ {:?} — created\n", f.path("home/good"))));
+    assert!(!text.contains(f.path("home/conflict").to_str().unwrap()));
     assert!(text.ends_with("1 changed, 0 unchanged, 1 failed\n"));
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(error.starts_with("! ~/conflict — failed\n  reason: expected a symlink:"));
+    assert!(error.starts_with(&format!(
+        "! {:?} — failed\n  reason: expected a symlink:",
+        f.path("home/conflict")
+    )));
     assert!(!error.contains('\t'));
     assert_eq!(fs::read_to_string(f.path("home/conflict")).unwrap(), "keep");
 }
@@ -240,7 +257,7 @@ fn completed_results_are_printed_only_after_the_transaction_returns() {
         let output = f.ok(&["source", "~/link"]);
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(
-            text.starts_with("✓ ~/link — recovered creation\n"),
+            text.starts_with(&format!("✓ {:?} — recovered creation\n", f.path("home/link"))),
             "{stage}: {text}"
         );
         assert_eq!(f.target("home/link"), f.path("source"));
@@ -252,7 +269,10 @@ fn target_warnings_and_control_characters_use_the_shared_display_rules() {
     let f = Fixture::new();
     let output = f.ok(&["missing\t\u{1b}target", "~/link\nname"]);
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.starts_with("! ~/link\\nname — created; target is missing\n"));
+    assert!(text.starts_with(&format!(
+        "! {:?} — created; target is missing\n",
+        f.path("home/link\nname")
+    )));
     assert!(!text.contains('\t'));
     assert!(!text.contains('\u{1b}'));
     assert_eq!(text.lines().count(), 2);
@@ -279,7 +299,10 @@ fn recovery_failures_use_the_same_error_block_and_keep_the_pending_operation() {
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8(output.stderr)
         .unwrap()
-        .starts_with("! ~/link — failed\n  reason: recovery stopped"));
+        .starts_with(&format!(
+            "! {:?} — failed\n  reason: recovery stopped",
+            f.path("home/link")
+        )));
     assert_eq!(fs::read_to_string(f.path("home/link")).unwrap(), "keep");
     assert!(f.path("config/slink/links.toml.slink-pending").exists());
 }
@@ -292,7 +315,11 @@ fn adopted_relative_targets_are_reported_as_the_registered_absolute_reference() 
     let output = f.ok(&["adopt", "~/link"]);
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        format!("✓ ~/link — registered\n  → {:?}\n", f.path("home/source"))
+        format!(
+            "✓ {:?} — registered\n  → {:?}\n",
+            f.path("home/link"),
+            f.path("home/source")
+        )
     );
     assert_eq!(f.target("home/link").to_str().unwrap(), "source");
 }

@@ -33,7 +33,7 @@ fn check_explains_a_target_mismatch_with_expected_and_actual_text() {
 }
 
 #[test]
-fn check_reports_missing_link_and_shortens_home_in_display() {
+fn check_reports_missing_link_with_a_quoted_absolute_path() {
     let f = Fixture::new();
     fs::write(f.root.join("target"), "ok").unwrap();
     f.write_entries(&[("home/.missing-link", "target")]);
@@ -41,8 +41,11 @@ fn check_reports_missing_link_and_shortens_home_in_display() {
     let output = f.run(&["check"]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("! ~/.missing-link — link is missing\n"));
-    assert!(!stdout.contains(f.root.join("home").to_str().unwrap()));
+    assert!(stdout.contains(&format!(
+        "! {:?} — link is missing\n",
+        f.path("home/.missing-link")
+    )));
+    assert!(!stdout.contains("~/"));
 }
 
 #[test]

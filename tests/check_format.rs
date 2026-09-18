@@ -70,6 +70,39 @@ fn check_tsv_keeps_mismatch_details_on_the_same_record() {
 }
 
 #[test]
+fn pending_paths_use_json_quotes_without_changing_recovery_data() {
+    let f = Fixture::new();
+    let target = "future\u{9b}/.";
+    f.crash(&[target, "home/link"], "linked");
+    let pending_path = f.path("config/slink/links.toml.slink-pending");
+    let before = fs::read(&pending_path).unwrap();
+
+    let output = f.run(&["check", "-o", "tsv"]);
+    assert_eq!(output.status.code(), Some(1));
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(!error.chars().any(|c| c.is_control() && c != '\n'));
+    let (link, target_text) = error
+        .trim_end()
+        .strip_prefix("PENDING: Create ")
+        .unwrap()
+        .split_once(" -> ")
+        .unwrap();
+    let target_text = target_text
+        .strip_suffix("; repeat the original operation to recover")
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<String>(link).unwrap(),
+        f.path("home/link").to_str().unwrap()
+    );
+    assert_eq!(
+        serde_json::from_str::<String>(target_text).unwrap(),
+        f.path(target).to_str().unwrap()
+    );
+    assert_eq!(fs::read(pending_path).unwrap(), before);
+    assert_eq!(f.target("home/link").to_str().unwrap(), f.path(target).to_str().unwrap());
+}
+
+#[test]
 fn read_only_views_accept_supported_formats_and_reject_invalid_formats() {
     let f = Fixture::new();
     fs::write(f.root.join("target"), "ok").unwrap();
