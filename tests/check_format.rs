@@ -99,7 +99,10 @@ fn pending_paths_use_json_quotes_without_changing_recovery_data() {
         f.path(target).to_str().unwrap()
     );
     assert_eq!(fs::read(pending_path).unwrap(), before);
-    assert_eq!(f.target("home/link").to_str().unwrap(), f.path(target).to_str().unwrap());
+    assert_eq!(
+        f.target("home/link").to_str().unwrap(),
+        f.path(target).to_str().unwrap()
+    );
 }
 
 #[test]

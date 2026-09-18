@@ -1,6 +1,4 @@
-use super::{
-    display_path, display_text, ok_marker, paint, plural, problem_marker, target_line,
-};
+use super::{display_path, display_text, ok_marker, paint, plural, problem_marker, target_line};
 use crate::{cli::Command, inspect, paths};
 use std::{
     collections::HashSet,

@@ -192,7 +192,10 @@ fn parent_creation_and_replacement_report_execution_and_preview() {
             "{marker} {:?} — would create",
             f.path("home/sub/link")
         )));
-        assert!(text.contains(&format!("  parent: {:?} (would create)\n", f.path("home/sub"))));
+        assert!(text.contains(&format!(
+            "  parent: {:?} (would create)\n",
+            f.path("home/sub")
+        )));
         assert!(!f.path("home/sub").exists());
         assert!(!f.path("config").exists());
 
@@ -206,7 +209,10 @@ fn parent_creation_and_replacement_report_execution_and_preview() {
         let output = f.ok(&["-fn", "other", "~/sub/link"]);
         assert!(String::from_utf8(output.stdout)
             .unwrap()
-            .starts_with(&format!("○ {:?} — would replace\n", f.path("home/sub/link"))));
+            .starts_with(&format!(
+                "○ {:?} — would replace\n",
+                f.path("home/sub/link")
+            )));
         assert_eq!(f.registry(), registry);
         assert_eq!(f.target("home/sub/link"), f.path("source"));
         let output = f.ok(&["-f", "other", "~/sub/link"]);
@@ -257,7 +263,10 @@ fn completed_results_are_printed_only_after_the_transaction_returns() {
         let output = f.ok(&["source", "~/link"]);
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(
-            text.starts_with(&format!("✓ {:?} — recovered creation\n", f.path("home/link"))),
+            text.starts_with(&format!(
+                "✓ {:?} — recovered creation\n",
+                f.path("home/link")
+            )),
             "{stage}: {text}"
         );
         assert_eq!(f.target("home/link"), f.path("source"));

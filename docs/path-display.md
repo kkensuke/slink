@@ -1,8 +1,8 @@
 # パス表示の共通化設計
 
-状態: 設計完了・実装待ち。今回の変更はこの設計書のみ。
-調査対象: main `24d9295`、[Draft PR #27](https://github.com/kkensuke/slink/pull/27) の既存実装 `46130e2`。
-PR に先行して入っている target のホーム省略処理は、実装段階で本設計に置き換える。
+状態: 実装済み。パス表示の共通化範囲と受け入れ条件を記録する。
+設計時の調査対象: main `24d9295`、[PR #27](https://github.com/kkensuke/slink/pull/27) の既存実装 `46130e2`。
+先行して入っていた target のホーム省略処理は、本設計の共通表示へ置き換えた。
 
 ## 1. 採用方針
 
@@ -184,7 +184,7 @@ fn display_path(path: impl AsRef<Path>) -> String {
 呼び出し側が上の適用表に従って入口を選ぶ。raw な列にも引用処理は共通利用される。
 `quoted()` をパス専用に変更すると raw 列と理由文も整理されるため、責務は拡張しない。
 
-実装時に削除する関数は `display_link()`・`quoted_path()` と PR #27 の `display_target()`。
+統合で削除した関数は `display_link()`・`quoted_path()` と PR #27 の `display_target()`。
 TSV 専用の別のパス整理関数や、link / target 別のラッパーは残さない。
 
 ## 5. 実装差分の対応
@@ -197,7 +197,8 @@ TSV 専用の別のパス整理関数や、link / target 別のラッパーは�
 | `tests/check_output.rs` | ホーム省略を前提にしたテストを置換。引用・末尾・不一致・pending の human 表示 |
 | `tests/check_format.rs` | check TSV の TARGET と ACTUAL_TARGET、ERROR / PENDING、固定列の契約 |
 | `tests/mutation_output.rs` | 操作・dry-run・復旧・parent・失敗表示の期待値を更新 |
-| `tests/registry_reading.rs` | list TSV の原文保持を拡充。無効な登録文字列も一覧できる契約を維持 |
+| `tests/registry_reading.rs` | 既存の list TSV 原文保持・無効な登録文字列を一覧できるテストを維持 |
+| `tests/redesign.rs` | `file/`・`file/.` の保存値・表示・診断結果を確認 |
 | `src/output.rs` 内のテスト | 整形仕様の境界ケースを表形式で検証 |
 | `README.md`・`README.ja.md` | human の引用・省略廃止・整理規則・出力例、TSV 各列の契約を同時に更新 |
 
@@ -230,15 +231,14 @@ TSV の TARGET の説明には、list は登録原文、check / 管理済み sca
 TSV の実データ検証では JSON 復号後の文字列を比較し、Path の等価比較で表記の差を見落とさない。
 
 既存の `tests/config.rs`、`tests/redesign.rs`、`tests/cli.rs`、復旧関連テストも回帰確認に使う。
-本設計作業では本体コードを変更しておらず、上記テストの追加・実行は実装段階で行う。
-実装完了時は既存 CI の fmt・clippy・test・release build と macOS の APFS 検証を通す。
+実装では表示関連のテストを更新・追加し、既存 CI の fmt・clippy・test・release build と macOS の APFS 検証を完了条件とする。
 
-## 7. 実装の進め方
+## 7. 実装の履歴
 
-1. 整理処理・共通入口・list の移行と境界テストをまとめ、同じ PR ブランチへ commit する。
-2. 診断・scan・操作結果・対象 TSV / stderr を移行し、対応するテストとともに commit する。
-3. 日英 README を更新し、既存 CI と原文保持の契約を確認する。完了した単位ごとに同じブランチへ反映する。
+1. 整理処理・共通入口・list の移行と境界テストを反映。
+2. 診断・scan・操作結果・対象 TSV / stderr を移行し、対応するテストを反映。
+3. 日英 README と本書を更新。既存 CI と原文保持の契約を完了条件として確認する。
 
 既存の Draft PR #27 を継続利用し、履歴は書き換えない。
-この設計書を追加した時点では、PR の実行コードには旧方針のホーム省略が残っている。
-実装着手時に新しい commit で置き換え、最終差分から旧関数・旧表示の期待値を除く。
+この設計書を追加した時点で残っていた旧方針のホーム省略は、追加 commit で置き換えた。
+最終差分では旧関数・旧表示を前提とするテストの期待値を除いている。
