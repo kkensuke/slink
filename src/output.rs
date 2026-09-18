@@ -55,7 +55,7 @@ pub fn list(entries: &[Entry], format: OutputFormat) {
     for entry in entries {
         outln!();
         outln!("{}", display_link(Path::new(&entry.link)));
-        outln!("  → {}", quoted(&entry.target));
+        outln!("  → {}", display_target(&entry.target));
     }
 }
 
@@ -687,6 +687,22 @@ pub fn display_text(text: &str) -> String {
         }
     }
     out
+}
+
+fn display_target(target: &str) -> String {
+    let compact = paths::home().ok().and_then(|home| {
+        let home = home.to_str()?.trim_end_matches('/');
+        let rest = target.strip_prefix(home)?;
+        if rest.is_empty() || (home.is_empty() && rest == "/") {
+            Some("~".to_owned())
+        } else if rest.starts_with('/') {
+            // Preserve the target's spelling, including trailing separators.
+            Some(format!("~{rest}"))
+        } else {
+            None
+        }
+    });
+    quoted(compact.as_deref().unwrap_or(target))
 }
 
 fn quoted(text: &str) -> String {
