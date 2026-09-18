@@ -54,8 +54,8 @@ pub fn list(entries: &[Entry], format: OutputFormat) {
     outln!("{count} {}", plural(count, "link", "links"));
     for entry in entries {
         outln!();
-        outln!("{}", display_link(Path::new(&entry.link)));
-        outln!("  → {}", display_target(&entry.target));
+        outln!("{}", display_path(&entry.link));
+        outln!("  → {}", display_path(&entry.target));
     }
 }
 
@@ -648,17 +648,38 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
     }
 }
 
-fn clean_display_path(p: &Path) -> PathBuf {
-    p.components().collect()
+// Display cleanup is lexical: never resolve '..', expand '~', or inspect the
+// filesystem. Preserve leading separators and directory-only suffixes.
+fn clean_display_path(text: &str) -> String {
+    let prefix_len = text.len() - text.trim_start_matches('/').len();
+    let mut out = text[..prefix_len].to_owned();
+    let mut parts = text[prefix_len..].split('/').peekable();
+    while let Some(part) = parts.next() {
+        if part.is_empty() || (part == "." && !out.is_empty() && parts.peek().is_some()) {
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with('/') {
+            out.push('/');
+        }
+        out.push_str(part);
+    }
+    if text.ends_with('/') && !out.is_empty() && !out.ends_with('/') {
+        out.push('/');
+    }
+    out
+}
+
+fn display_path(path: impl AsRef<Path>) -> String {
+    let text = path.as_ref().to_str().unwrap_or("<non-UTF-8>");
+    quoted(&clean_display_path(text))
 }
 
 fn quoted_path(p: &Path) -> String {
-    let cleaned = clean_display_path(p);
-    quoted(cleaned.to_str().unwrap_or("<non-UTF-8>"))
+    display_path(p)
 }
 
 pub fn display_link(p: &Path) -> String {
-    let cleaned = clean_display_path(p);
+    let cleaned: PathBuf = p.components().collect();
     let p = cleaned.as_path();
     let compact = paths::home().ok().and_then(|home| {
         if p == home {
@@ -689,22 +710,6 @@ pub fn display_text(text: &str) -> String {
     out
 }
 
-fn display_target(target: &str) -> String {
-    let compact = paths::home().ok().and_then(|home| {
-        let home = home.to_str()?.trim_end_matches('/');
-        let rest = target.strip_prefix(home)?;
-        if rest.is_empty() || (home.is_empty() && rest == "/") {
-            Some("~".to_owned())
-        } else if rest.starts_with('/') {
-            // Preserve the target's spelling, including trailing separators.
-            Some(format!("~{rest}"))
-        } else {
-            None
-        }
-    });
-    quoted(compact.as_deref().unwrap_or(target))
-}
-
 fn quoted(text: &str) -> String {
     let json = serde_json::to_string(text).expect("string serialization");
     let mut escaped = String::new();
@@ -717,4 +722,69 @@ fn quoted(text: &str) -> String {
         }
     }
     escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clean_display_path, display_path};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+
+    #[test]
+    fn path_display_preserves_path_boundaries_and_directory_suffixes() {
+        for (input, expected) in [
+            ("/Users/example/.zshenv", "/Users/example/.zshenv"),
+            ("/a/./b", "/a/b"),
+            ("/a//./b", "/a/b"),
+            ("/a/./b/", "/a/b/"),
+            ("/a/./b/.", "/a/b/."),
+            ("/a/b///", "/a/b/"),
+            ("/a/b/./", "/a/b/"),
+            ("/a/../b", "/a/../b"),
+            ("/../b", "/../b"),
+            ("../a/./b", "../a/b"),
+            ("./a/./b", "./a/b"),
+            ("~/a/./b", "~/a/b"),
+            ("//server//a/./b/.", "//server/a/b/."),
+            ("///a//b", "///a/b"),
+            ("/", "/"),
+            ("//", "//"),
+            ("///", "///"),
+            ("/.", "/."),
+            ("/./", "/"),
+            (".", "."),
+            ("./", "./"),
+            ("././", "./"),
+            ("", ""),
+            (" a ", " a "),
+            ("a/./.", "a/."),
+            ("a/.//", "a/"),
+            ("./.", "./."),
+            ("//./", "//"),
+        ] {
+            assert_eq!(clean_display_path(input), expected, "input={input:?}");
+            assert_eq!(clean_display_path(expected), expected, "input={input:?}");
+            let displayed = display_path(input);
+            assert_eq!(
+                serde_json::from_str::<String>(&displayed).unwrap(),
+                expected,
+                "input={input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_display_quotes_names_and_escapes_terminal_controls() {
+        let name = " 日本語 \"\\\t\n\r\0\u{1b}\u{7f}\u{9b} ";
+        let displayed = display_path(name);
+        assert!(displayed.starts_with('"') && displayed.ends_with('"'));
+        assert!(!displayed.chars().any(char::is_control));
+        assert_eq!(serde_json::from_str::<String>(&displayed).unwrap(), name);
+        assert!(displayed.contains("日本語"));
+    }
+
+    #[test]
+    fn path_display_keeps_the_non_utf8_placeholder() {
+        let path = Path::new(OsStr::from_bytes(b"/invalid-\xff"));
+        assert_eq!(display_path(path), "\"<non-UTF-8>\"");
+    }
 }

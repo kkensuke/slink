@@ -14,14 +14,49 @@ fn list_uses_vertical_human_output_and_keeps_tsv_available() {
     assert!(human.status.success());
     let stdout = String::from_utf8(human.stdout).unwrap();
     assert!(stdout.starts_with("2 links\n\n"));
-    assert!(stdout.contains(&format!("one\n  → {:?}\n", f.path("target"))));
-    assert!(stdout.contains(&format!("two\n  → {:?}\n", f.path("target"))));
+    for link in ["one", "two"] {
+        assert!(stdout.contains(&format!("{:?}\n  → {:?}\n", f.path(link), f.path("target"))));
+    }
     assert!(!stdout.contains("LINK\tTARGET"));
 
     let tsv = f.run(&["list", "--format", "tsv"]);
     assert!(tsv.status.success());
     let stdout = String::from_utf8(tsv.stdout).unwrap();
     assert!(stdout.starts_with("LINK\tTARGET\n"));
+}
+
+#[test]
+fn list_formats_both_paths_without_changing_stored_strings() {
+    let f = Fixture::new();
+    f.write_entries(&[
+        ("home//./link", "home//./target/."),
+        ("home/other", "home/target///"),
+    ]);
+    let before = f.registry();
+
+    let human = String::from_utf8(f.ok(&["list"]).stdout).unwrap();
+    assert!(human.contains(&format!(
+        "{:?}\n  → {:?}\n",
+        f.path("home/link"),
+        f.path("home/target/.")
+    )));
+    assert!(human.contains(&format!("  → {:?}\n", f.path("home/target/"))));
+    assert!(!human.contains("~/"));
+
+    let tsv = String::from_utf8(f.ok(&["list", "-o", "tsv"]).stdout).unwrap();
+    let rows: Vec<Vec<String>> = tsv
+        .lines()
+        .skip(1)
+        .map(|line| {
+            line.split('\t')
+                .map(|cell| serde_json::from_str(cell).unwrap())
+                .collect()
+        })
+        .collect();
+    assert_eq!(rows[0][0], f.path("home//./link").to_str().unwrap());
+    assert_eq!(rows[0][1], f.path("home//./target/.").to_str().unwrap());
+    assert_eq!(rows[1][1], f.path("home/target///").to_str().unwrap());
+    assert_eq!(f.registry(), before);
 }
 
 #[test]
