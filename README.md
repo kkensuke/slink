@@ -48,6 +48,15 @@ To view the registrations:
 slink list
 ```
 
+With the single registration above, the output is:
+
+```text
+1 link
+
+"/Users/you/B/link"
+  → "/Users/you/A/target"
+```
+
 To check that the symlinks match their registrations and their targets are reachable:
 
 ```sh
@@ -183,7 +192,11 @@ slink scan ~/links
 
 The default `human` format groups `scan` results into registered and unregistered symlinks, with problems first in each group. When `check` finds no problems, it prints `OK N links`.
 
-Symlink locations under your home directory are abbreviated as `~/…`. To disable colors, set the `NO_COLOR` environment variable or use `TERM=dumb`.
+In human output, path fields use double quotes and JSON escaping for link locations, targets, and parent directories. Absolute paths are shown without home-directory abbreviations; relative targets remain relative. Display cleanup removes interior `/./` components and collapses repeated separators, while preserving `..`, a leading `./`, and the number of leading `/` characters. A trailing `/` or `/.` is retained; these two endings are not combined. Repeated trailing slashes become one `/`.
+
+This formatting only affects output. It does not change stored paths, symlinks, or the acceptance of `~/` in command arguments. Literal `~` characters in names remain literal. `--config` still prints an unquoted absolute path for use in command substitution.
+
+To disable colors, set the `NO_COLOR` environment variable or use `TERM=dumb`.
 
 ### Changes and previews
 
@@ -192,7 +205,7 @@ Creating, registering, unregistering, removing, or restoring a symlink displays 
 `fix` displays changed symlinks and symlinks with target problems, and summarizes healthy unchanged symlinks by count. For example, restoring one missing symlink while leaving 22 healthy symlinks unchanged produces:
 
 ```text
-✓ ~/links/example.txt — created
+✓ "/Users/you/links/example.txt" — created
   → "/Users/you/files/example.txt"
 
 1 changed, 22 unchanged
@@ -201,7 +214,7 @@ Creating, registering, unregistering, removing, or restoring a symlink displays 
 Running `slink fix -n` previews the same operation without writing:
 
 ```text
-○ ~/links/example.txt — would create
+○ "/Users/you/links/example.txt" — would create
   → "/Users/you/files/example.txt"
 
 1 change planned, 22 unchanged
@@ -234,14 +247,16 @@ Output has a header and one row per symlink.
 | `MANAGEMENT` | Whether the symlink is registered |
 | `LINK` | The symlink's location |
 | `LINK_STATE` | Whether the symlink matches its registration |
-| `TARGET` | The target path saved in the registry |
+| `TARGET` | The registered target: stored text in `list`, validated and normalized absolute path in `check` and registered `scan` rows |
 | `TARGET_STATE` | Whether the registered target is reachable |
 | `ACTUAL_TARGET` | The target path read from the actual symlink; it may be relative |
 | `ACTUAL_TARGET_STATE` | Whether the actual symlink's target is reachable |
 
-- Path cells are JSON strings, and absent values are empty cells. `list` outputs the strings stored in the registry without changing them. In `check` and registered `scan` rows, `TARGET` is an absolute path. A matching symlink can have different text in `TARGET` and `ACTUAL_TARGET`, for example after adopting a symlink that uses a relative path.
+- Path cells are JSON strings, and absent values are empty cells. After JSON decoding, `list`'s `LINK` and `TARGET` retain the stored strings exactly, and `ACTUAL_TARGET` retains the string read from the symlink, including relative paths, `/./`, repeated separators, and directory-only endings.
+- `check` and `scan` use the display cleanup described above for `LINK` and the registered `TARGET`. A matching symlink can have different text in `TARGET` and `ACTUAL_TARGET`, for example after adopting a symlink that uses a relative path. Use the state columns for the diagnosis rather than comparing displayed strings.
 - For unregistered `scan` rows, `LINK_STATE`, `TARGET`, and `TARGET_STATE` are empty, and `ACTUAL_TARGET` shows the actual target path.
 - Results go to standard output (stdout), and error reasons go to standard error (stderr).
+- Standalone paths in `ERROR` records and both paths in `PENDING` notices use the same display cleanup and quoting. Error reasons remain text and are not cleaned as paths.
 
 ## Limitations and recovery
 
@@ -263,3 +278,10 @@ Output has a header and one row per symlink.
 - `list` returns `0` when it can read and display registrations. Use `check` to find out whether paths and symlinks are valid.
 - Successful creation or `fix` returns `0` even if the target does not exist. `check` returns `1` for problems with symlinks or their targets, and `2` for invalid registry values.
 - `scan` returns `1` for permission or I/O errors, but does not fail merely because it finds symlinks whose targets are missing. Trying to fix a symlink with a different target without `-f` returns `1`.
+
+## Development documentation
+
+- [Internal design](slink-design.md): responsibilities, path comparisons, change planning, and recovery.
+- [Default behavior](docs/defaults.md): defaults and their rationale.
+- [Path display design](docs/path-display.md): where to share formatting and where to preserve raw strings.
+- [Homebrew releases](docs/homebrew.md): release and tap maintenance.

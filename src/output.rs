@@ -54,8 +54,8 @@ pub fn list(entries: &[Entry], format: OutputFormat) {
     outln!("{count} {}", plural(count, "link", "links"));
     for entry in entries {
         outln!();
-        outln!("{}", display_link(Path::new(&entry.link)));
-        outln!("  → {}", quoted(&entry.target));
+        outln!("{}", display_path(&entry.link));
+        outln!("  → {}", display_path(&entry.target));
     }
 }
 
@@ -67,10 +67,10 @@ pub fn check(
     if format == OutputFormat::Tsv {
         if let Some(p) = pending {
             eprintln!(
-                "PENDING: {:?} {} -> {:?}; repeat the original operation to recover",
+                "PENDING: {:?} {} -> {}; repeat the original operation to recover",
                 p.op,
-                quoted_path(&p.link),
-                p.entry.target
+                display_path(&p.link),
+                display_path(&p.entry.target)
             );
         }
         outln!("LINK\tLINK_STATE\tTARGET\tTARGET_STATE\tACTUAL_TARGET\tACTUAL_TARGET_STATE");
@@ -78,9 +78,9 @@ pub fn check(
             let actual = diagnosis.actual();
             outln!(
                 "{}\t{}\t{}\t{}\t{}\t{}",
-                quoted_path(link),
+                display_path(link),
                 diagnosis.link.code(),
-                quoted(target),
+                display_path(target),
                 diagnosis.expected_health.code(),
                 actual.map_or_else(String::new, |(target, _)| quoted(target)),
                 actual.map_or("", |(_, health)| health.code()),
@@ -110,8 +110,8 @@ pub fn check(
         outln!();
         outln!("! incomplete operation");
         outln!("  operation: {}", format!("{:?}", p.op).to_lowercase());
-        outln!("  link: {}", display_link(&p.link));
-        outln!("  target: {}", quoted(&p.entry.target));
+        outln!("  link: {}", display_path(&p.link));
+        outln!("  target: {}", display_path(&p.entry.target));
         outln!("  repeat the original command with the same target and options to recover");
     }
     for (link, target, diagnosis) in problems {
@@ -129,14 +129,14 @@ fn print_diagnostic_reasons(link: &Path, diagnosis: &Diagnosis) {
         _ => None,
     };
     if let Some(reason) = link_reason {
-        eprintln!("ERROR\t{}\t{}", quoted_path(link), quoted(&reason));
+        eprintln!("ERROR\t{}\t{}", display_path(link), quoted(&reason));
     }
     for (label, health) in [
         ("expected target", Some(&diagnosis.expected_health)),
         ("actual target", diagnosis.actual_health.as_ref()),
     ] {
         if let Some(reason) = health.and_then(TargetHealth::reason) {
-            eprintln!("ERROR\t{}\t{label}\t{}", quoted_path(link), quoted(reason));
+            eprintln!("ERROR\t{}\t{label}\t{}", display_path(link), quoted(reason));
         }
     }
 }
@@ -362,7 +362,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
                 diagnosis,
             } => (
                 diagnosis.link.code(),
-                quoted(expected),
+                display_path(expected),
                 diagnosis.expected_health.code(),
             ),
             ScanHealth::Unmanaged(_) => ("", String::new(), ""),
@@ -374,7 +374,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
             } else {
                 "UNMANAGED"
             },
-            quoted_path(&entry.link),
+            display_path(&entry.link),
             quoted(&entry.target),
             entry.actual_health().code(),
         );
@@ -384,7 +384,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
             }
             ScanHealth::Unmanaged(health) => {
                 if let Some(reason) = health.reason() {
-                    eprintln!("ERROR\t{}\t{}", quoted_path(&entry.link), quoted(reason));
+                    eprintln!("ERROR\t{}\t{}", display_path(&entry.link), quoted(reason));
                 }
             }
         }
@@ -392,7 +392,7 @@ fn print_scan_tsv(entries: &[ScanEntry], errors: &[ScanError]) {
     for error in errors {
         eprintln!(
             "ERROR\t{}\t{}",
-            quoted_path(&error.path),
+            display_path(&error.path),
             quoted(&error.reason)
         );
     }
@@ -446,7 +446,7 @@ fn print_scan_human(mut entries: Vec<ScanEntry>, errors: &[ScanError]) {
             outln!(
                 "  {} {} — cannot scan",
                 problem_marker(),
-                display_link(&error.path)
+                display_path(&error.path)
             );
             outln!("    reason: {}", display_text(&error.reason));
         }
@@ -467,8 +467,8 @@ fn print_scan_section(entries: &[ScanEntry]) {
         }
         match &entry.health {
             ScanHealth::Managed { diagnosis, .. } if diagnosis.is_healthy() => {
-                outln!("  {} {}", ok_marker(), display_link(&entry.link));
-                outln!("    → {}", quoted(&entry.target));
+                outln!("  {} {}", ok_marker(), display_path(&entry.link));
+                outln!("    → {}", display_path(&entry.target));
             }
             ScanHealth::Managed {
                 expected,
@@ -495,16 +495,16 @@ fn print_scan_section(entries: &[ScanEntry]) {
 fn print_unmanaged(entry: &ScanEntry) {
     match entry.actual_health().problem_label() {
         None => {
-            outln!("  {} {}", ok_marker(), display_link(&entry.link));
-            outln!("    → {}", quoted(&entry.target));
+            outln!("  {} {}", ok_marker(), display_path(&entry.link));
+            outln!("    → {}", display_path(&entry.target));
         }
         Some(problem) => {
             outln!(
                 "  {} {} — {problem}",
                 problem_marker(),
-                display_link(&entry.link)
+                display_path(&entry.link)
             );
-            outln!("    → {}", quoted(&entry.target));
+            outln!("    → {}", display_path(&entry.target));
             if let Some(reason) = entry.actual_health().reason() {
                 outln!("    reason: {}", display_text(reason));
             }
@@ -575,7 +575,7 @@ impl TargetHealth {
 }
 
 fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<String> {
-    let link = display_link(p);
+    let link = display_path(p);
     let mut lines = Vec::new();
     match &diagnosis.link {
         LinkState::Match(_) => {
@@ -588,16 +588,16 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
                 TargetHealth::Reachable => {}
                 TargetHealth::Missing => {
                     lines.push(format!("! {link} — target is missing"));
-                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  target: {}", display_path(expected)));
                 }
                 TargetHealth::ResolutionError(reason) => {
                     lines.push(format!("! {link} — target cannot be resolved"));
-                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  target: {}", display_path(expected)));
                     lines.push(format!("  reason: {}", display_text(reason)));
                 }
                 TargetHealth::Unknown(reason) => {
                     lines.push(format!("! {link} — cannot inspect target"));
-                    lines.push(format!("  target: {}", quoted(expected)));
+                    lines.push(format!("  target: {}", display_path(expected)));
                     lines.push(format!("  reason: {}", display_text(reason)));
                 }
             }
@@ -634,7 +634,7 @@ fn render_diagnosis(diagnosis: &Diagnosis, p: &Path, expected: &str) -> Vec<Stri
 
 fn target_line(label: &str, target: &str) -> String {
     let separator = if label == "actual" { ":   " } else { ": " };
-    format!("  {label}{separator}{}", quoted(target))
+    format!("  {label}{separator}{}", display_path(target))
 }
 
 fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &TargetHealth) {
@@ -648,33 +648,30 @@ fn push_target(lines: &mut Vec<String>, label: &str, target: &str, health: &Targ
     }
 }
 
-fn clean_display_path(p: &Path) -> PathBuf {
-    p.components().collect()
-}
-
-fn quoted_path(p: &Path) -> String {
-    let cleaned = clean_display_path(p);
-    quoted(cleaned.to_str().unwrap_or("<non-UTF-8>"))
-}
-
-pub fn display_link(p: &Path) -> String {
-    let cleaned = clean_display_path(p);
-    let p = cleaned.as_path();
-    let compact = paths::home().ok().and_then(|home| {
-        if p == home {
-            Some("~".to_owned())
-        } else {
-            p.strip_prefix(home)
-                .ok()
-                .and_then(|rest| paths::text(rest).ok())
-                .map(|rest| format!("~/{rest}"))
+// Display cleanup is lexical: never resolve '..', expand '~', or inspect the
+// filesystem. Preserve leading separators and directory-only suffixes.
+fn clean_display_path(text: &str) -> String {
+    let prefix_len = text.len() - text.trim_start_matches('/').len();
+    let mut out = text[..prefix_len].to_owned();
+    let mut parts = text[prefix_len..].split('/').peekable();
+    while let Some(part) = parts.next() {
+        if part.is_empty() || (part == "." && !out.is_empty() && parts.peek().is_some()) {
+            continue;
         }
-    });
-    display_text(
-        compact
-            .as_deref()
-            .unwrap_or_else(|| p.to_str().unwrap_or("<non-UTF-8>")),
-    )
+        if !out.is_empty() && !out.ends_with('/') {
+            out.push('/');
+        }
+        out.push_str(part);
+    }
+    if text.ends_with('/') && !out.is_empty() && !out.ends_with('/') {
+        out.push('/');
+    }
+    out
+}
+
+fn display_path(path: impl AsRef<Path>) -> String {
+    let text = path.as_ref().to_str().unwrap_or("<non-UTF-8>");
+    quoted(&clean_display_path(text))
 }
 
 pub fn display_text(text: &str) -> String {
@@ -701,4 +698,69 @@ fn quoted(text: &str) -> String {
         }
     }
     escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clean_display_path, display_path};
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+
+    #[test]
+    fn path_display_preserves_path_boundaries_and_directory_suffixes() {
+        for (input, expected) in [
+            ("/Users/example/.zshenv", "/Users/example/.zshenv"),
+            ("/a/./b", "/a/b"),
+            ("/a//./b", "/a/b"),
+            ("/a/./b/", "/a/b/"),
+            ("/a/./b/.", "/a/b/."),
+            ("/a/b///", "/a/b/"),
+            ("/a/b/./", "/a/b/"),
+            ("/a/../b", "/a/../b"),
+            ("/../b", "/../b"),
+            ("../a/./b", "../a/b"),
+            ("./a/./b", "./a/b"),
+            ("~/a/./b", "~/a/b"),
+            ("//server//a/./b/.", "//server/a/b/."),
+            ("///a//b", "///a/b"),
+            ("/", "/"),
+            ("//", "//"),
+            ("///", "///"),
+            ("/.", "/."),
+            ("/./", "/"),
+            (".", "."),
+            ("./", "./"),
+            ("././", "./"),
+            ("", ""),
+            (" a ", " a "),
+            ("a/./.", "a/."),
+            ("a/.//", "a/"),
+            ("./.", "./."),
+            ("//./", "//"),
+        ] {
+            assert_eq!(clean_display_path(input), expected, "input={input:?}");
+            assert_eq!(clean_display_path(expected), expected, "input={input:?}");
+            let displayed = display_path(input);
+            assert_eq!(
+                serde_json::from_str::<String>(&displayed).unwrap(),
+                expected,
+                "input={input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_display_quotes_names_and_escapes_terminal_controls() {
+        let name = " 日本語 \"\\\t\n\r\0\u{1b}\u{7f}\u{9b} ";
+        let displayed = display_path(name);
+        assert!(displayed.starts_with('"') && displayed.ends_with('"'));
+        assert!(!displayed.chars().any(char::is_control));
+        assert_eq!(serde_json::from_str::<String>(&displayed).unwrap(), name);
+        assert!(displayed.contains("日本語"));
+    }
+
+    #[test]
+    fn path_display_keeps_the_non_utf8_placeholder() {
+        let path = Path::new(OsStr::from_bytes(b"/invalid-\xff"));
+        assert_eq!(display_path(path), "\"<non-UTF-8>\"");
+    }
 }

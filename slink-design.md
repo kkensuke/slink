@@ -1,65 +1,125 @@
-# slink の設計
+# slink internal design
 
-macOS 向けの symbolic-link management CLI です。管理ファイルは手編集できる TOML とし、CLI・実物・管理ファイルのどれを正として更新するかで操作を分ける。
+slink manages two related states: the symlinks on disk and their registrations in a TOML file.
+Each command chooses which information drives an update. Path interpretation, inspection, planning, persistence, and presentation have separate responsibilities.
 
-## パスと管理ファイル
+This document explains those responsibilities and the guarantees they provide.
+See the [README](README.md) for commands, options, and exit codes; [Default behavior](docs/defaults.md) for the reasons behind the defaults; and [Path display design](docs/path-display.md) for formatting rules and their scope.
 
-- CLI は絶対パス、作業ディレクトリ基準の相対パス、先頭 `~/` を受け付ける。入力時に絶対パスへ変換する。
-- 管理ファイルは `$XDG_CONFIG_HOME/slink/links.toml` の1ファイル。XDG の値が未設定・空・相対なら `~/.config/slink/links.toml` を使う。
-- 管理ファイルは `[[link]]` の `link` / `target` だけで構成する。手編集を含め、両フィールドは絶対パスだけを許可する。空ファイルは登録0件とする。
-- 新規作成・復元する symlink の target は絶対パス。入力中の symlink を最終参照先へ置き換えず、意味のある `..` と末尾のディレクトリ指定を保持する。
-- 余分な `.` を link の保存・表示から除く。link の最終要素は辿らず、親ディレクトリと名前で配置先を識別する。APFS の大小文字・Unicode 照合を考慮する。
-- 管理ファイルが symlink の場合はその参照先を更新する。新規登録は `link   =` と `target =` の位置を揃える。既存の空白・コメント・順序・改行形式を保持し、変更項目だけを書き換える。
+## Module responsibilities
 
-## 操作
+| Module | Responsibility |
+| --- | --- |
+| [main.rs](src/main.rs) and [cli.rs](src/cli.rs) | Parse and validate arguments, invoke the engine, and handle top-level errors and exit codes. |
+| [engine.rs](src/engine.rs) | Select entries, build change plans from observations, and coordinate execution and recovery. |
+| [paths.rs](src/paths.rs) | Interpret input paths, normalize references for comparison, and identify link locations. |
+| [registry.rs](src/registry.rs) | Read and validate TOML, edit registrations, lock the registry, detect concurrent edits, and save atomically. |
+| [inspect.rs](src/inspect.rs) | Capture filesystem snapshots and diagnose whether a symlink matches its registration and whether its targets are reachable. |
+| [transaction.rs](src/transaction.rs) | Record pending operations, back up existing symlinks, and execute or resume changes. |
+| [output.rs](src/output.rs) | Render list, check, and scan output; collect and order scan results; provide shared display formatting. |
+| [output/mutation.rs](src/output/mutation.rs) | Report changes, previews, and recovery results; count outcomes; evaluate target health after a fix batch. |
 
-| 操作 | 正とする情報 | 更新対象 |
+Some filesystem inspection and health evaluation currently live in the output modules.
+Those operations still use the original path data. A function's location in an output module does not make display formatting appropriate for its inputs.
+
+## What drives each operation
+
+Commands share planning and execution machinery, while choosing different sources of information for the desired state.
+
+| Operation | Basis for the change | State updated |
 | --- | --- | --- |
-| `slink <target> <link>` | CLI | 実物と管理ファイル |
-| `slink fix [link ...]` | 管理ファイル | 実物 |
-| `slink adopt <link ...>` | 実物 | 管理ファイル |
-| `slink unregister <link ...>` | 管理ファイル | 登録解除のみ。実物は変更しない |
-| `slink remove <link ...>` | 登録された一致するリンク | 実物の削除と登録解除 |
+| `slink <target> <link>` | CLI arguments | Symlink and registry |
+| `slink fix [link ...]` | Registry entries | Symlinks |
+| `slink adopt <link ...>` | Existing symlinks | Registry |
+| `slink unregister <link ...>` | Selected registry entries | Registry only |
+| `slink remove <link ...>` | A registered symlink that matches its entry, or a registered location where the link is already absent | Symlink, if present, and registry |
 
-`unregister` はリンクの配置先に何があるかにかかわらず登録だけを解除する。`remove` は登録と一致するリンクだけを削除して登録解除し、リンクがすでに存在しなければ登録だけを解除する。参照先が異なる場合や通常ファイル・ディレクトリがある場合は、実物と登録を残して失敗する。両コマンドともリンクの明示指定を必須とし、`-n` に対応する。
+Existing regular files and directories are protected from replacement and deletion.
+If `remove` finds a symlink that differs from its registration, it fails and preserves both the symlink and the entry.
+The README describes command arguments and conflict handling in detail.
 
-作成先が存在しなければ作成し、既存の一致する symlink は保持して登録を追加・更新する。異なる symlink の置換には `-f` が必要。通常ファイル・ディレクトリは置換しない。第2引数は常にリンクそのものの配置先であり、その中に target の名前を付け足さない。
+## Path interpretation and comparison
 
-adopt は既存リンクを書き換えず、実物から読んだ target を、そのリンクが格納されているディレクトリ基準の絶対表記にして登録する。既存登録も実物に合わせて更新する。check / fix / remove は同じ参照パス変換で照合する。異なる symlink の連鎖を最終参照先だけで同一視しない。fix で消えたリンクを復元するときは絶対 target を使い、元の相対文字列の再現は保証しない。
+Three values must remain distinct:
 
-list は登録を記載順に表示し、不正なパスや重複した登録も表示する。TSV は保存された `link` / `target` 文字列をそのまま出力する。human 表示は filesystem を検査しないが、link location だけは表示用に `~/` 化し、冗長な `.` を除く。target は保存文字列を表示する。check・scan・変更操作は管理ファイル全体のパスを検証してから実物を扱う。読み込みとパス検証を分け、list のためにパスや実物の検査は行わない。TOML 構文や項目構造が不正で一覧を読み込めない場合は list も失敗し、部分的な一覧は出さない。パスの検証エラーには管理ファイル・項目番号・フィールドを示し、作業ディレクトリから修正パスを推測しない。
+- **Link location:** the directory entry occupied by the symlink.
+- **Registered target:** the absolute reference path stored in the registry.
+- **Observed target:** the string returned by readlink, which may be relative and may use a different spelling from the registered target.
 
-scan は指定ディレクトリの直下を探索し、省略時は作業ディレクトリを使う。`-R` で通常ディレクトリを再帰探索するが、探索中のディレクトリ symlink は辿らない。workflow や venv の拡張子・名前による例外は設けない。管理状態は target ではなくリンク配置先で判定する。
+The `paths` module converts CLI input to absolute paths. Relative input uses the working directory, and `~` or a leading `~/` uses the home directory.
+Registry values must already be absolute in both fields; reading the registry does not expand `~`.
 
-## オプション
+Target references preserve the paths of any symlinks they contain instead of replacing those paths with their final destinations.
+`paths::normalize()` consults the filesystem before collapsing a parent component: it can simplify `ordinary-directory/..`, but preserves `..` after a symlink or a missing or inaccessible component.
+It also preserves target suffixes that require a directory, such as `/` and `/.`.
+Link identity uses the containing directory and the final name without following the link itself, with APFS case sensitivity and Unicode equivalence taken into account.
 
-| 短縮形 | 長い形式 | 対象 |
-| --- | --- | --- |
-| `-c` | `--config` | 管理ファイルの場所だけを表示 |
-| `-f` | `--force` | 作成・fix で異なる symlink を置換 |
-| `-p` | `--parents` | 作成・fix で不足する親ディレクトリを作成 |
-| `-n` | `--dry-run` | 変更予定だけを表示 |
-| `-R` | `--recursive` | scan の再帰探索 |
-| `-o` | `--format` | list・check・scan の human / tsv |
-| `-h` | `--help` | ヘルプ |
-| `-V` | `--version` | バージョン |
+`adopt` leaves the existing symlink untouched.
+It converts a relative observed target to an absolute reference using the directory containing the link, treating any `~` returned by readlink as a literal filename character.
+`check`, `fix`, and `remove` use the same reference conversion when comparing targets.
+Two different chains of symlinks are not considered equivalent merely because they ultimately reach the same object.
 
-短縮オプションは連結できる。`--` 以降はパスとして扱う。引数全体を検証してから実行する。
+New and restored symlinks use absolute targets.
+As a result, `fix` can restore the registered reference without reproducing the original relative target string.
 
-## 実行と検証
+Display formatting is a separate operation. `display_path()` prepares text for output; its result is never used for path comparison, persistence, or filesystem operations.
 
-観測・変更計画・実行を分け、dry-run と本実行は同じ計画を使う。`fix` は選択された managed link 同士の依存関係を考慮し、依存先を先に処理する。依存関係のない項目や cycle でも処理順は決定的にし、`links.toml` の記載順だけで結果や warning が変わらないようにする。明示した operand は fix 対象の集合を決めるもので、依存先を対象外から自動追加しない。
+## Reading, validating, and saving the registry
 
-`fix` の target warning は各 mutation 直後の途中状態ではなく、選択された batch の処理後の filesystem state で評価する。`fix -n` は実際の symlink を作らないため、planned managed symlink を含む projected final state で target health を評価する。planned symlink を path の途中で通る target も、その symlink の target と残りの path component を使って解決し、意味のある `..` は通常の filesystem traversal と同じ位置で評価する。
+The registry is a TOML document intended to support manual editing.
+Each `[[link]]` table contains `link` and `target` strings; an empty file represents zero registrations.
+Parsing and path validation are separate so that users can inspect entries that need repair.
 
-管理ファイルのロック・同時編集検出・原子的な保存を維持する。置換と削除は既存 symlink を検証して退避し、復旧記録により途中失敗から同じ操作を再開できる。通常ファイルを消さず、管理ファイルと内部補助ファイルへの配置先の衝突を拒否する。
+- `list` uses `Registry::read_entries()` to read stored strings in file order. It can show invalid paths and duplicate registrations without inspecting the links or their targets.
+- `check`, `scan`, and mutation commands use `Registry::open()` to validate paths and detect duplicates across the entire registry.
+- Invalid TOML syntax or entry structure prevents even `list` from reading the file. No partial list is printed, and invalid registry paths are never repaired by guessing from the working directory.
 
-直接の自己参照は作成しない。存在しない target へのリンクは作成でき、その状態を報告する。check の問題検出、変更の競合、scan の検査不能は終了コード1、引数・管理ファイルの不正は2。正常完了は0。scan で壊れたリンクを発見しただけなら0。
+Human list output formats both stored path strings for readability.
+TSV list output preserves their values exactly after JSON decoding, so scripts can retrieve what was registered.
+Neither output format writes display text back to the registry.
 
-list は一覧を読んで表示できれば0とし、登録値や実物の検査結果を意味しない。管理ファイルのパスが不正な場合は check が2を返す。
+When the registry path is itself a symlink, updates go to its referent.
+New entries align `link   =` with `target =`; edits preserve existing whitespace, comments, ordering, and line endings around unchanged content.
+Writes use locking, concurrent-edit detection, and atomic replacement.
 
-human / TSV は同じ診断を使い、TSV は1リンク1行とする。target の生文字列と正規化した参照パスを混同せず、制御文字をエスケープする。
+## Planning and target health
 
-変更操作は実行結果を表示処理へ渡し、完了後にリンク配置先・動作・target を共通形式で表示する。dry-run は予定を示す動作名と記号で区別する。復旧も同じ結果表示を使う。fix では正常な変更不要項目を件数にまとめ、変更と target の問題を表示する。変更・変更不要・失敗の件数と target の問題件数を分け、完了前や失敗した操作を成功として表示しない。操作エラーは場所と理由を stderr に出す。
+Observation, planning, and execution are separate steps. Dry-run and execution consume the same change plan.
 
-受け入れ条件は CLI オプションの組合せ、相対入力と symlink の連鎖、既存リンクの登録・置換、相対リンクの adopt と復元、scan の深さと workflow、手編集・dry-run・途中失敗・APFS の両 case mode とする。英語と日本語の README は同じ例と仕様を説明する。
+Within a selected `fix` batch, dependencies between managed symlinks are processed before their dependents.
+Ordering is deterministic even for independent entries or dependency cycles, so reordering the registry alone does not change results or warnings.
+Explicit link arguments define the set to process; dependencies outside that set are not added automatically.
+
+Target health describes whether a target is reachable.
+For `fix`, warnings reflect the filesystem after the selected batch has been processed, rather than the intermediate state after each individual change.
+For `fix -n`, health is evaluated against a projected state that includes the planned symlinks.
+
+Projection also handles a planned symlink encountered partway through a target path.
+It combines that symlink's target with the remaining path components and evaluates meaningful `..` components at the same point that ordinary filesystem traversal would.
+
+## Transactions and recovery
+
+Before replacement or removal, slink verifies the existing symlink and moves it to a backup.
+A pending-operation record allows an interrupted change to resume when the user repeats the same operation.
+Recovery checks the request and the current filesystem state. If either conflicts with the recorded operation, recovery stops and retains the record.
+
+Mutation safeguards also reject link locations that collide with the registry or its internal support files.
+Processing multiple links is not one atomic transaction: changes that have already completed remain in place if another item fails.
+
+## Reporting and verification
+
+Human and TSV output use the same diagnoses.
+Formatting never recomputes target matches or health from the displayed strings.
+Human path fields and selected TSV fields use `display_path()`; TSV fields that expose original strings use `quoted()`.
+The [path display design](docs/path-display.md) defines those fields, the treatment of reasons and `--config`, and the distinction between trailing `/` and `/.`.
+
+Mutation commands pass results to `MutationOutput` after the planned changes complete.
+Previews use labels and markers that identify the work as proposed, and completed recovery uses the same result layout as other changes.
+For `fix`, healthy unchanged entries are summarized by count, while changes and target problems are shown individually.
+
+Changed, unchanged, and failed operations are counted separately from target problems.
+An incomplete or failed operation is never reported as successful; operation errors include the affected location and reason on stderr.
+
+The [tests](tests) cover CLI combinations, path semantics, registrations, mutations, scans, manual edits, dry-run, and recovery from interrupted operations.
+[CI](.github/workflows/ci.yml) runs formatting checks, clippy, tests, and release builds; macOS jobs also exercise both APFS case-sensitivity modes.
+The English and Japanese READMEs describe the same examples and behavior. Release procedures are documented in [Homebrew releases](docs/homebrew.md).

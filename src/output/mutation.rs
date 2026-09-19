@@ -1,6 +1,4 @@
-use super::{
-    display_link, display_text, ok_marker, paint, plural, problem_marker, quoted, target_line,
-};
+use super::{display_path, display_text, ok_marker, paint, plural, problem_marker, target_line};
 use crate::{cli::Command, inspect, paths};
 use std::{
     collections::HashSet,
@@ -125,12 +123,12 @@ impl MutationOutput {
         };
         let label = result.action.label(self.dry_run, result.recovered);
         let warning = problem.map_or(String::new(), |p| format!("; {p}"));
-        outln!("{marker} {} — {label}{warning}", display_link(&result.link));
-        outln!("  → {}", quoted(&result.target));
+        outln!("{marker} {} — {label}{warning}", display_path(&result.link));
+        outln!("  → {}", display_path(&result.target));
         if let Some(parent) = &result.parent {
             outln!(
                 "  parent: {} ({})",
-                display_link(parent),
+                display_path(parent),
                 if self.dry_run {
                     "would create"
                 } else {
@@ -146,12 +144,12 @@ impl MutationOutput {
     pub fn failure(&mut self, link: &Path, error: &anyhow::Error) {
         self.failed += 1;
         if let Some(mismatch) = error.downcast_ref::<inspect::TargetMismatch>() {
-            eprintln!("! {} — failed: {mismatch}", display_link(link));
+            eprintln!("! {} — failed: {mismatch}", display_path(link));
             eprintln!("{}", target_line("expected", &mismatch.expected));
             eprintln!("{}", target_line("actual", &mismatch.actual));
             eprintln!("  hint:     use --force (-f) to replace this symlink");
         } else {
-            eprintln!("! {} — failed", display_link(link));
+            eprintln!("! {} — failed", display_path(link));
             eprintln!("  reason: {}", display_text(&format!("{error:#}")));
         }
         eprintln!();

@@ -14,14 +14,49 @@ fn list_uses_vertical_human_output_and_keeps_tsv_available() {
     assert!(human.status.success());
     let stdout = String::from_utf8(human.stdout).unwrap();
     assert!(stdout.starts_with("2 links\n\n"));
-    assert!(stdout.contains(&format!("one\n  → {:?}\n", f.path("target"))));
-    assert!(stdout.contains(&format!("two\n  → {:?}\n", f.path("target"))));
+    for link in ["one", "two"] {
+        assert!(stdout.contains(&format!("{:?}\n  → {:?}\n", f.path(link), f.path("target"))));
+    }
     assert!(!stdout.contains("LINK\tTARGET"));
 
     let tsv = f.run(&["list", "--format", "tsv"]);
     assert!(tsv.status.success());
     let stdout = String::from_utf8(tsv.stdout).unwrap();
     assert!(stdout.starts_with("LINK\tTARGET\n"));
+}
+
+#[test]
+fn list_formats_both_paths_without_changing_stored_strings() {
+    let f = Fixture::new();
+    f.write_entries(&[
+        ("home//./link", "home//./target/."),
+        ("home/other", "home/target///"),
+    ]);
+    let before = f.registry();
+
+    let human = String::from_utf8(f.ok(&["list"]).stdout).unwrap();
+    assert!(human.contains(&format!(
+        "{:?}\n  → {:?}\n",
+        f.path("home/link"),
+        f.path("home/target/.")
+    )));
+    assert!(human.contains(&format!("  → {:?}\n", f.path("home/target/"))));
+    assert!(!human.contains("~/"));
+
+    let tsv = String::from_utf8(f.ok(&["list", "-o", "tsv"]).stdout).unwrap();
+    let rows: Vec<Vec<String>> = tsv
+        .lines()
+        .skip(1)
+        .map(|line| {
+            line.split('\t')
+                .map(|cell| serde_json::from_str(cell).unwrap())
+                .collect()
+        })
+        .collect();
+    assert_eq!(rows[0][0], f.path("home//./link").to_str().unwrap());
+    assert_eq!(rows[0][1], f.path("home//./target/.").to_str().unwrap());
+    assert_eq!(rows[1][1], f.path("home/target///").to_str().unwrap());
+    assert_eq!(f.registry(), before);
 }
 
 #[test]
@@ -65,6 +100,21 @@ fn scan_reports_traversal_errors_separately_and_returns_one() {
     assert!(stdout.contains("Scan errors (1)\n"));
     assert!(stdout.contains("cannot scan"));
     assert!(stdout.contains("scan roots must be directories, not symlinks"));
+
+    let tsv = f.run(&["scan", "-o", "tsv", "./not-a-directory"]);
+    assert_eq!(tsv.status.code(), Some(1));
+    let error = String::from_utf8(tsv.stderr).unwrap();
+    let cells: Vec<_> = error.trim_end().split('\t').collect();
+    assert_eq!(cells.len(), 3);
+    assert_eq!(cells[0], "ERROR");
+    assert_eq!(
+        serde_json::from_str::<String>(cells[1]).unwrap(),
+        f.path("not-a-directory").to_str().unwrap()
+    );
+    assert_eq!(
+        serde_json::from_str::<String>(cells[2]).unwrap(),
+        "scan roots must be directories, not symlinks"
+    );
 }
 
 #[test]
@@ -129,6 +179,76 @@ fn scan_tsv_uses_registered_and_actual_columns_consistently() {
         "../missing"
     );
     assert_eq!(rows[1][6], "MISSING");
+}
+
+#[test]
+fn check_and_scan_format_paths_but_keep_actual_target_strings_in_tsv() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.path("data/target")).unwrap();
+    fs::create_dir(f.path("expected")).unwrap();
+    let actual = "../data//./target/.";
+    for name in ["managed", "matching", "unmanaged"] {
+        symlink(actual, f.path(&format!("home/{name}"))).unwrap();
+    }
+    f.write_entries(&[
+        ("home/managed", "expected/./."),
+        ("home/matching", "data//./target/."),
+    ]);
+    let before = f.registry();
+
+    for command in ["check", "scan"] {
+        let mut args = vec![command];
+        if command == "scan" {
+            args.push("home");
+        }
+        let human = f.run(&args);
+        let status = if command == "check" { 1 } else { 0 };
+        assert_eq!(human.status.code(), Some(status));
+        let text = String::from_utf8(human.stdout).unwrap();
+        assert!(text.contains(&format!("! {:?} — target differs", f.path("home/managed"))));
+        assert!(text.contains(&format!("expected: {:?}", f.path("expected/."))));
+        assert!(text.contains("actual:   \"../data/target/.\""));
+        assert!(!text.contains("~/"));
+        if command == "scan" {
+            assert_eq!(text.matches("→ \"../data/target/.\"").count(), 2);
+        }
+
+        args.extend(["-o", "tsv"]);
+        let tsv = f.run(&args);
+        assert_eq!(tsv.status.code(), Some(status));
+        let text = String::from_utf8(tsv.stdout).unwrap();
+        let offset = usize::from(command == "scan");
+        assert_eq!(text.lines().count(), if offset == 1 { 4 } else { 3 });
+        for row in text.lines().skip(1) {
+            let cells: Vec<_> = row.split('\t').collect();
+            assert_eq!(cells.len(), 6 + offset);
+            let link: String = serde_json::from_str(cells[offset]).unwrap();
+            assert!(link.starts_with(f.path("home").to_str().unwrap()));
+            assert_eq!(
+                serde_json::from_str::<String>(cells[4 + offset]).unwrap(),
+                actual
+            );
+            if link.ends_with("/unmanaged") {
+                assert_eq!(cells[0], "UNMANAGED");
+                assert_eq!(&cells[2..5], &["", "", ""]);
+            } else {
+                let (state, target) = if link.ends_with("/matching") {
+                    ("MATCH", "data/target/.")
+                } else {
+                    ("MISMATCH", "expected/.")
+                };
+                assert_eq!(cells[1 + offset], state);
+                assert_eq!(
+                    serde_json::from_str::<String>(cells[2 + offset]).unwrap(),
+                    f.path(target).to_str().unwrap()
+                );
+            }
+        }
+    }
+    assert_eq!(f.registry(), before);
+    for name in ["managed", "matching", "unmanaged"] {
+        assert_eq!(f.target(&format!("home/{name}")).to_str().unwrap(), actual);
+    }
 }
 
 #[test]
