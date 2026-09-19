@@ -281,7 +281,7 @@ slink scan -o tsv
 
 ## 開発用ドキュメント
 
-- [内部設計](slink-design.md)：責務の分担、パスの照合、変更計画と復旧。
+- [内部設計](slink-design.md)（英語）：責務の分担、パスの照合、変更計画と復旧。
 - [Default behavior](docs/defaults.md)（英語）：既定動作とその理由。
 - [パス表示の設計](docs/path-display.md)：共通の整形処理を使う範囲と原文を保持する範囲。
 - [Homebrew の運用手順](docs/homebrew.md)（英語）：リリースと tap の保守。
