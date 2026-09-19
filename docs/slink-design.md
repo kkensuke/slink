@@ -4,20 +4,20 @@ slink manages two related states: the symlinks on disk and their registrations i
 Each command chooses which information drives an update. Path interpretation, inspection, planning, persistence, and presentation have separate responsibilities.
 
 This document explains those responsibilities and the guarantees they provide.
-See the [README](README.md) for commands, options, and exit codes; [Default behavior](docs/defaults.md) for the reasons behind the defaults; and [Path display design](docs/path-display.md) for formatting rules and their scope.
+See the [README](../README.md) for commands, options, and exit codes; [Default behavior](defaults.md) for the reasons behind the defaults; and [Path display design](path-display.md) for formatting rules and their scope.
 
 ## Module responsibilities
 
 | Module | Responsibility |
 | --- | --- |
-| [main.rs](src/main.rs) and [cli.rs](src/cli.rs) | Parse and validate arguments, invoke the engine, and handle top-level errors and exit codes. |
-| [engine.rs](src/engine.rs) | Select entries, build change plans from observations, and coordinate execution and recovery. |
-| [paths.rs](src/paths.rs) | Interpret input paths, normalize references for comparison, and identify link locations. |
-| [registry.rs](src/registry.rs) | Read and validate TOML, edit registrations, lock the registry, detect concurrent edits, and save atomically. |
-| [inspect.rs](src/inspect.rs) | Capture filesystem snapshots and diagnose whether a symlink matches its registration and whether its targets are reachable. |
-| [transaction.rs](src/transaction.rs) | Record pending operations, back up existing symlinks, and execute or resume changes. |
-| [output.rs](src/output.rs) | Render list, check, and scan output; collect and order scan results; provide shared display formatting. |
-| [output/mutation.rs](src/output/mutation.rs) | Report changes, previews, and recovery results; count outcomes; evaluate target health after a fix batch. |
+| [main.rs](../src/main.rs) and [cli.rs](../src/cli.rs) | Parse and validate arguments, invoke the engine, and handle top-level errors and exit codes. |
+| [engine.rs](../src/engine.rs) | Select entries, build change plans from observations, and coordinate execution and recovery. |
+| [paths.rs](../src/paths.rs) | Interpret input paths, normalize references for comparison, and identify link locations. |
+| [registry.rs](../src/registry.rs) | Read and validate TOML, edit registrations, lock the registry, detect concurrent edits, and save atomically. |
+| [inspect.rs](../src/inspect.rs) | Capture filesystem snapshots and diagnose whether a symlink matches its registration and whether its targets are reachable. |
+| [transaction.rs](../src/transaction.rs) | Record pending operations, back up existing symlinks, and execute or resume changes. |
+| [output.rs](../src/output.rs) | Render list, check, and scan output; collect and order scan results; provide shared display formatting. |
+| [output/mutation.rs](../src/output/mutation.rs) | Report changes, previews, and recovery results; count outcomes; evaluate target health after a fix batch. |
 
 Some filesystem inspection and health evaluation currently live in the output modules.
 Those operations still use the original path data. A function's location in an output module does not make display formatting appropriate for its inputs.
@@ -111,7 +111,7 @@ Processing multiple links is not one atomic transaction: changes that have alrea
 Human and TSV output use the same diagnoses.
 Formatting never recomputes target matches or health from the displayed strings.
 Human path fields and selected TSV fields use `display_path()`; TSV fields that expose original strings use `quoted()`.
-The [path display design](docs/path-display.md) defines those fields, the treatment of reasons and `--config`, and the distinction between trailing `/` and `/.`.
+The [path display design](path-display.md) defines those fields, the treatment of reasons and `--config`, and the distinction between trailing `/` and `/.`.
 
 Mutation commands pass results to `MutationOutput` after the planned changes complete.
 Previews use labels and markers that identify the work as proposed, and completed recovery uses the same result layout as other changes.
@@ -120,6 +120,6 @@ For `fix`, healthy unchanged entries are summarized by count, while changes and 
 Changed, unchanged, and failed operations are counted separately from target problems.
 An incomplete or failed operation is never reported as successful; operation errors include the affected location and reason on stderr.
 
-The [tests](tests) cover CLI combinations, path semantics, registrations, mutations, scans, manual edits, dry-run, and recovery from interrupted operations.
-[CI](.github/workflows/ci.yml) runs formatting checks, clippy, tests, and release builds; macOS jobs also exercise both APFS case-sensitivity modes.
-The English and Japanese READMEs describe the same examples and behavior. Release procedures are documented in [Homebrew releases](docs/homebrew.md).
+The [tests](../tests) cover CLI combinations, path semantics, registrations, mutations, scans, manual edits, dry-run, and recovery from interrupted operations.
+[CI](../.github/workflows/ci.yml) runs formatting checks, clippy, tests, and release builds; macOS jobs also exercise both APFS case-sensitivity modes.
+The English and Japanese READMEs describe the same examples and behavior. Release procedures are documented in [Homebrew releases](homebrew.md).
