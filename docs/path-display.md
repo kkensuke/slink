@@ -3,7 +3,7 @@
 This document defines how slink formats paths and where that formatting belongs.
 It describes the implemented behavior and the requirements that future changes must preserve.
 For the user-facing output contract, see the [README](../README.md#output).
-For path interpretation, comparison, and persistence, see the [internal design](../slink-design.md).
+For path interpretation, comparison, and persistence, see the [internal design](./slink-design.md).
 
 ## Choose the formatter by the value's purpose
 

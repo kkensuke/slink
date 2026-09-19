@@ -281,7 +281,7 @@ Output has a header and one row per symlink.
 
 ## Development documentation
 
-- [Internal design](slink-design.md): responsibilities, path comparisons, change planning, and recovery.
+- [Internal design](docs/slink-design.md): responsibilities, path comparisons, change planning, and recovery.
 - [Default behavior](docs/defaults.md): defaults and their rationale.
 - [Path display design](docs/path-display.md): where to share formatting and where to preserve raw strings.
 - [Homebrew releases](docs/homebrew.md): release and tap maintenance.
