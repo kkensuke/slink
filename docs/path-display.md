@@ -1,8 +1,7 @@
 # パス表示の共通化設計
 
-状態: 実装済み。パス表示の共通化範囲と受け入れ条件を記録する。
-設計時の調査対象: main `24d9295`、[PR #27](https://github.com/kkensuke/slink/pull/27) の既存実装 `46130e2`。
-先行して入っていた target のホーム省略処理は、本設計の共通表示へ置き換えた。
+実装済みのパス表示について、共通処理の適用範囲と受け入れ条件を記録する。
+利用者向けの出力仕様は [README](../README.ja.md#出力)、入力・照合・保存との責務の分担は [内部設計](../slink-design.md) を参照する。
 
 ## 1. 採用方針
 
@@ -12,11 +11,12 @@ human / TSV という出力形式だけでは分けない。
 - `display_path(path)`: 表示用にパス表記を整理し、二重引用符・エスケープを付ける。
 - `quoted(text)`: 元の文字列を整理せず、二重引用符・エスケープだけを付ける。
 
-ホームディレクトリを `~` に省略する表示処理は全て廃止する。
-この変更は「表示のための `~` を生成しない」という意味であり、入力の `~/` 展開や、symlink に文字として記録された `~` は維持する。
+ホームディレクトリを `~` に省略する表示処理は行わない。
+表示のための `~` を生成せず、入力の `~/` 展開や、symlink に文字として記録された `~` は維持する。
 相対パスは表示時に絶対化しない。
 
-一般の文章には既存の `display_text()` を使い、エラー全文からパスらしい文字列を探して書き換えない。
+human の理由文などには `display_text()`、TSV の ERROR の理由文には `quoted()` を使う。
+最上位エラーなどは既存の文章用処理を維持し、エラー全文からパスらしい文字列を探して書き換えない。
 
 ## 2. 共通処理を使う範囲
 
@@ -24,7 +24,7 @@ human / TSV という出力形式だけでは分けない。
 
 以下のパス欄には全て `display_path()` を使う。link / target という名前で処理を分けない。
 
-| 出力 | 対象パス | 変更する既存の入口 |
+| 出力 | 対象パス | 実装の入口 |
 |---|---|---|
 | list | link・target | `list()` の human 分岐 |
 | check の問題詳細 | link・target・expected・actual | `render_diagnosis()`、`target_line()` |
@@ -61,8 +61,8 @@ human / TSV という出力形式だけでは分けない。
 | check stderr の PENDING | link・target | `display_path()` | 復旧操作の対象を案内する表示 |
 
 `PENDING:` は TSV のデータ行ではなく、stderr の案内文である。
-現在の target の `{:?}` を `display_path(&p.entry.target)` に置き換え、link と揃える。
-操作名の `{:?}` は `Operation` の表示なのでそのまま残す。文の形と出力先も維持する。
+link と target はともに `display_path()` を使う。
+操作名には `Operation` の `{:?}` 表示を使う。
 
 TSV の列名・列順・状態コード・行順・stdout / stderr の役割は変更しない。
 値がないセルは空欄のままとし、`display_path("")` や `quoted("")` で `""` に置き換えない。
@@ -85,8 +85,7 @@ TSV の列名・列順・状態コード・行順・stdout / stderr の役割は
 | 管理ファイル・pending / backup 情報・symlink 自体 | 既存の保存処理 | 表示の整理を保存値へ戻さない |
 
 操作失敗でも、独立した `link:` 相当の欄は共通化し、`reason:` の文章は変更しない。
-同じ対象パスが理由文にも出る場合、表記が完全一致することまでは今回の契約にしない。
-ホーム省略のための `PathError` / `Diagnostic` 型や human / TSV 切り替え付きエラー型は新設しない。
+同じ対象パスが理由文にも出る場合、表記が完全一致することまでは契約にしない。
 
 ## 3. 整形の仕様
 
@@ -114,11 +113,11 @@ HOME・現在ディレクトリ・ファイルの存在・権限・symlink の�
 例えば `a///` は `"a/"`、`a/./` は `"a/"` と表示する。
 区切りの数や `.` の原文まで必要な列は `quoted()` を使う。
 
-先頭の `//` 等は、今回整理対象にする途中の区切りとは分けて保護する。
+先頭の `//` 等は、整理対象にする途中の区切りとは分けて保護する。
 `/./` は `"/"`、`/.` は `"/."`、`./` は `"./"` とする。
 ルートに末尾区切りを追加して、意図せず `//` を作らない。
 
-既存の `Path::components().collect()` は末尾区切りや `/.` を除くため、そのまま使用しない。
+`Path::components().collect()` は末尾区切りや `/.` を除くため、表示用整理には使用しない。
 この挙動は [Rust の Path::components の仕様](https://doc.rust-lang.org/std/path/struct.Path.html#method.components) でも確認できる。
 `paths::normalize()` はさらに実体を確認して `..` を処理するため、表示には流用しない。
 
@@ -154,8 +153,8 @@ HOME・現在ディレクトリ・ファイルの存在・権限・symlink の�
 
 ## 4. 関数と依存の設計
 
-配置は `src/output.rs`。このモジュールと子モジュールの `mutation` で使う内部関数とする。
-`src/paths.rs` には移さず、表示文字列をパス操作へ再利用しにくい構成を維持する。
+配置は [src/output.rs](../src/output.rs)。このモジュールと子モジュールの `mutation` で使う内部関数とする。
+入力や照合を扱う [src/paths.rs](../src/paths.rs) とは分け、表示文字列をパス操作へ再利用しにくい構成を維持する。
 
 | 関数 | 責務 |
 |---|---|
@@ -166,7 +165,7 @@ HOME・現在ディレクトリ・ファイルの存在・権限・symlink の�
 | `target_line()` / `push_target()` | パスの共通表示とラベル・注記を組み合わせる |
 | `render_diagnosis()` / `MutationOutput` | 既存の診断・操作結果レイアウトを組み立てる |
 
-共通入口のコード骨格:
+共通入口:
 
 ```rust
 fn display_path(path: impl AsRef<Path>) -> String {
@@ -184,36 +183,27 @@ fn display_path(path: impl AsRef<Path>) -> String {
 呼び出し側が上の適用表に従って入口を選ぶ。raw な列にも引用処理は共通利用される。
 `quoted()` をパス専用に変更すると raw 列と理由文も整理されるため、責務は拡張しない。
 
-統合で削除した関数は `display_link()`・`quoted_path()` と PR #27 の `display_target()`。
-TSV 専用の別のパス整理関数や、link / target 別のラッパーは残さない。
+TSV 専用の別のパス整理関数や、link / target 別のラッパーは設けない。
 
-## 5. 実装差分の対応
+## 5. 実装と検証の所在
 
-| ファイル | 変更内容 |
+| ファイル | 担当する実装・検証 |
 |---|---|
-| `src/output.rs` | 共通入口と整理処理を実装。human のパス欄、対象 TSV 列、ERROR / PENDING を移行。旧3関数を削除 |
-| `src/output/mutation.rs` | import と link・target・parent・失敗時 link を移行。expected / actual は共通 target_line 経由 |
-| `tests/read_output.rs` | list / scan の表示更新、raw 列との境界を検証 |
-| `tests/check_output.rs` | ホーム省略を前提にしたテストを置換。引用・末尾・不一致・pending の human 表示 |
-| `tests/check_format.rs` | check TSV の TARGET と ACTUAL_TARGET、ERROR / PENDING、固定列の契約 |
-| `tests/mutation_output.rs` | 操作・dry-run・復旧・parent・失敗表示の期待値を更新 |
-| `tests/registry_reading.rs` | 既存の list TSV 原文保持・無効な登録文字列を一覧できるテストを維持 |
-| `tests/redesign.rs` | `file/`・`file/.` の保存値・表示・診断結果を確認 |
-| `src/output.rs` 内のテスト | 整形仕様の境界ケースを表形式で検証 |
-| `README.md`・`README.ja.md` | human の引用・省略廃止・整理規則・出力例、TSV 各列の契約を同時に更新 |
-
-`src/main.rs`・`src/engine.rs`・`src/paths.rs`・`src/inspect.rs`・`src/registry.rs`・`src/transaction.rs` の実行処理は変更不要。
-Cargo の依存追加、CLI の引数追加、保存形式の変更も不要。
-
-README の入力例や設定場所を説明する `~` まで一括置換しない。
-更新対象は出力仕様と実際の出力例。
-TSV の TARGET の説明には、list は登録原文、check / 管理済み scan は検証後の期待値であることを明記する。
+| [src/output.rs](../src/output.rs) | 共通入口と整理処理、human のパス欄、対象 TSV 列、ERROR / PENDING。単体テストで整形の境界ケースを検証 |
+| [src/output/mutation.rs](../src/output/mutation.rs) | link・target・parent・失敗時 link の表示。expected / actual は共通の `target_line()` 経由 |
+| [tests/read_output.rs](../tests/read_output.rs) | list / scan の表示、check / scan の raw 列との境界、ERROR のパス欄 |
+| [tests/check_output.rs](../tests/check_output.rs) | 引用・制御文字・ホーム省略のない絶対パス、不一致・pending の human 表示 |
+| [tests/check_format.rs](../tests/check_format.rs) | check TSV の固定列、TARGET と ACTUAL_TARGET、PENDING の引用と復旧データの維持 |
+| [tests/mutation_output.rs](../tests/mutation_output.rs) | 操作・dry-run・復旧・parent・失敗時の表示 |
+| [tests/registry_reading.rs](../tests/registry_reading.rs) | list TSV の原文保持、無効な登録文字列の一覧と変更操作の検証の分離 |
+| [tests/redesign.rs](../tests/redesign.rs) | `file/`・`file/.` の保存値・表示・診断、CLI の `~/` と readlink の literal `~`、パスの意味 |
+| [README.md](../README.md#output)・[README.ja.md](../README.ja.md#出力) | 利用者向けの human / TSV 出力仕様と出力例 |
 
 ## 6. 受け入れ条件
 
-| 観点 | 実装時の検証 |
+| 観点 | 検証内容 |
 |---|---|
-| 整理規則 | 上の入出力表を直接検証。`a/./.`、`a/.//`、`./.`、`//./` も境界ケースに加える |
+| 整理規則 | 上の入出力表を直接検証。`a/./.`、`a/.//`、`./.`、`//./` の境界ケースも含む |
 | 冪等性 | `clean(clean(s)) == clean(s)`。引用済みの文字列を再入力する契約ではない |
 | 引用・制御文字 | 空白・二重引用符・バックスラッシュ・改行・タブ・DEL・C1・日本語を含むパスを JSON 復号して確認。制御文字による行や列の増加がない |
 | 非 UTF-8 | Path の既存フォールバックが panic せず、引用されたプレースホルダーになる |
@@ -230,15 +220,5 @@ TSV の TARGET の説明には、list は登録原文、check / 管理済み sca
 見た目のパスが一致しても、それを根拠に MATCH や健康状態を再計算しない。
 TSV の実データ検証では JSON 復号後の文字列を比較し、Path の等価比較で表記の差を見落とさない。
 
-既存の `tests/config.rs`、`tests/redesign.rs`、`tests/cli.rs`、復旧関連テストも回帰確認に使う。
-実装では表示関連のテストを更新・追加し、既存 CI の fmt・clippy・test・release build と macOS の APFS 検証を完了条件とする。
-
-## 7. 実装の履歴
-
-1. 整理処理・共通入口・list の移行と境界テストを反映。
-2. 診断・scan・操作結果・対象 TSV / stderr を移行し、対応するテストを反映。
-3. 日英 README と本書を更新。既存 CI と原文保持の契約を完了条件として確認する。
-
-既存の Draft PR #27 を継続利用し、履歴は書き換えない。
-この設計書を追加した時点で残っていた旧方針のホーム省略は、追加 commit で置き換えた。
-最終差分では旧関数・旧表示を前提とするテストの期待値を除いている。
+既存の [tests/config.rs](../tests/config.rs)、[tests/redesign.rs](../tests/redesign.rs)、[tests/cli.rs](../tests/cli.rs)、復旧関連テストも回帰確認に使う。
+[CI](../.github/workflows/ci.yml) の fmt・clippy・test・release build と macOS の APFS 検証を通して、表示とパス操作の両方の契約を確認する。

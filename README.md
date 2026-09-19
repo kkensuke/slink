@@ -48,6 +48,15 @@ To view the registrations:
 slink list
 ```
 
+With the single registration above, the output is:
+
+```text
+1 link
+
+"/Users/you/B/link"
+  → "/Users/you/A/target"
+```
+
 To check that the symlinks match their registrations and their targets are reachable:
 
 ```sh
@@ -183,7 +192,7 @@ slink scan ~/links
 
 The default `human` format groups `scan` results into registered and unregistered symlinks, with problems first in each group. When `check` finds no problems, it prints `OK N links`.
 
-Path fields use double quotes and JSON escaping for link locations, targets, and parent directories. Absolute paths are shown without home-directory abbreviations; relative targets remain relative. Display cleanup removes interior `/./` components and collapses repeated separators, while preserving `..`, a leading `./`, and the number of leading `/` characters. A trailing `/` or `/.` is retained; these two endings are not combined. Repeated trailing slashes become one `/`.
+In human output, path fields use double quotes and JSON escaping for link locations, targets, and parent directories. Absolute paths are shown without home-directory abbreviations; relative targets remain relative. Display cleanup removes interior `/./` components and collapses repeated separators, while preserving `..`, a leading `./`, and the number of leading `/` characters. A trailing `/` or `/.` is retained; these two endings are not combined. Repeated trailing slashes become one `/`.
 
 This formatting only affects output. It does not change stored paths, symlinks, or the acceptance of `~/` in command arguments. Literal `~` characters in names remain literal. `--config` still prints an unquoted absolute path for use in command substitution.
 
@@ -269,3 +278,10 @@ Output has a header and one row per symlink.
 - `list` returns `0` when it can read and display registrations. Use `check` to find out whether paths and symlinks are valid.
 - Successful creation or `fix` returns `0` even if the target does not exist. `check` returns `1` for problems with symlinks or their targets, and `2` for invalid registry values.
 - `scan` returns `1` for permission or I/O errors, but does not fail merely because it finds symlinks whose targets are missing. Trying to fix a symlink with a different target without `-f` returns `1`.
+
+## Development documentation
+
+- [Internal design](slink-design.md) (Japanese): responsibilities, path comparisons, change planning, and recovery.
+- [Default behavior](docs/defaults.md): defaults and their rationale.
+- [Path display design](docs/path-display.md) (Japanese): where to share formatting and where to preserve raw strings.
+- [Homebrew releases](docs/homebrew.md): release and tap maintenance.
