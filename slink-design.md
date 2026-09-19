@@ -10,7 +10,7 @@ See the [README](README.md) for commands, options, and exit codes; [Default beha
 
 | Module | Responsibility |
 | --- | --- |
-| [main.rs](src/main.rs) and [cli.rs](src/cli.rs) | Parse and validate arguments, enter command execution, and handle top-level errors and exit codes. |
+| [main.rs](src/main.rs) and [cli.rs](src/cli.rs) | Parse and validate arguments, invoke the engine, and handle top-level errors and exit codes. |
 | [engine.rs](src/engine.rs) | Select entries, build change plans from observations, and coordinate execution and recovery. |
 | [paths.rs](src/paths.rs) | Interpret input paths, normalize references for comparison, and identify link locations. |
 | [registry.rs](src/registry.rs) | Read and validate TOML, edit registrations, lock the registry, detect concurrent edits, and save atomically. |
@@ -49,7 +49,7 @@ Three values must remain distinct:
 The `paths` module converts CLI input to absolute paths. Relative input uses the working directory, and `~` or a leading `~/` uses the home directory.
 Registry values must already be absolute in both fields; reading the registry does not expand `~`.
 
-A target reference keeps the symlinks named along its path.
+Target references preserve the paths of any symlinks they contain instead of replacing those paths with their final destinations.
 `paths::normalize()` consults the filesystem before collapsing a parent component: it can simplify `ordinary-directory/..`, but preserves `..` after a symlink or a missing or inaccessible component.
 It also preserves target suffixes that require a directory, such as `/` and `/.`.
 Link identity uses the containing directory and the final name without following the link itself, with APFS case sensitivity and Unicode equivalence taken into account.
