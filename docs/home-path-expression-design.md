@@ -4,66 +4,94 @@
 
 Design proposal.
 
-This document defines a minimal HOME-directory expression for registry `link` and `target` values while preserving the canonical relative-target model from the relative symlink target work.
+This document defines a minimal HOME-directory expression for registry `link` and `target` values while preserving the canonical relative-target model from #28.
 
-The design deliberately treats HOME notation as **registry input syntax**, not as persistent state and not as a general template language.
+The central rule is:
+
+```text
+registry source may contain a HOME expression
+        ↓ validation
+runtime Entry is always concrete
+        ↓ registry serialization
+the configured registry write style chooses concrete or HOME-expression spelling
+```
+
+HOME notation is never carried as runtime target state.
 
 ## Goals
 
-- Allow users to write HOME-relative paths in registry `link` and `target` values.
+- Allow HOME-relative expressions in registry `link` and `target` values.
 - Keep `Entry.link` and `Entry.target` concrete after validation.
+- Let a registry choose whether slink-generated HOME paths are written as concrete absolute paths or as `${HOME}` expressions.
+- Keep that choice at registry scope so shared registries do not change spelling according to each user's personal preference.
 - Preserve literal `~` symlink targets and ordinary pathname semantics.
 - Preserve the meaning of already-existing symlinks during `adopt` even when their raw target spelling collides with registry expression syntax.
-- Keep `adopt`, `fix`, semantic comparison, transactions, and recovery on the existing concrete-target model.
+- Keep `fix`, semantic comparison, transactions, and recovery on the existing concrete-target model.
 - Avoid a general environment-variable or interpolation language.
-- Avoid new persistent fields, enums, transaction variants, or recovery state.
-- Keep the implementation small enough to remain a parser/validation feature rather than a new subsystem.
+- Avoid per-entry expression state, new transaction variants, or recovery state.
+- Avoid registry-wide normalization as a side effect of ordinary commands.
 
 ## Non-goals
 
 This design does not:
 
-- make the registry relocatable between different HOME directories;
 - introduce general `$VAR` or `${VAR}` expansion;
 - introduce shell expansion semantics;
 - make CLI operands a template language;
-- preserve HOME expressions as generated registry output;
-- preserve every observed relative target spelling as the registered representation when that spelling collides with reserved registry syntax.
+- promise general machine-independent registry relocation;
+- preserve every observed relative target spelling when that spelling collides with reserved registry syntax;
+- automatically rewrite all existing entries when the registry write preference changes;
+- add a registry formatter command.
 
-## Existing model
+`${HOME}` can make individual HOME-based entries easier to share, but it is not a general relocation mechanism.
 
-The relative-target design defines the registry around two values:
+## Existing runtime model
+
+The relative-target design keeps each validated entry conceptually as:
 
 ```text
 link
-    managed symlink location
+    concrete absolute managed symlink location
 
 target
-    canonical target text slink intends to materialize
+    concrete canonical target text slink intends to materialize
 ```
 
-The effective reference is derived from `(link, target)`.
+The target may be absolute or relative, and relative target meaning is derived from `(link, target)`.
 
-That model should remain unchanged. In particular, after validation:
+This design does not change that model.
+
+After validation:
 
 ```text
 Entry.link
-    concrete managed symlink location
+    concrete absolute path
 
 Entry.target
     concrete canonical target text
 ```
 
-`Entry.target` must not become an unevaluated expression. This keeps:
+In particular, runtime state does not carry:
 
-- `symlink(&entry.target, &link)`;
-- semantic target comparison;
+```text
+home_expression
+source_expression
+target_style
+materialized_target
+```
+
+as per-entry semantic state.
+
+That keeps:
+
+- `target_matches`;
 - `fix`;
 - `fix -f`;
 - pending transactions;
 - exact recovery ownership;
+- symlink materialization;
 
-on the existing concrete-target representation.
+on the existing concrete representation.
 
 ## Registry HOME expression
 
@@ -74,7 +102,7 @@ ${HOME}
 ${HOME}/...
 ```
 
-Examples:
+Example:
 
 ```toml
 [[link]]
@@ -82,9 +110,7 @@ link = "${HOME}/.local/bin/tool"
 target = "${HOME}/src/tool"
 ```
 
-They are expanded to the current HOME directory during registry validation.
-
-For example, if HOME is `/Users/alice`:
+If HOME is `/Users/alice`, validation interprets them as:
 
 ```text
 "${HOME}"
@@ -96,7 +122,7 @@ For example, if HOME is `/Users/alice`:
 
 No other form is special.
 
-The following are ordinary pathname text:
+These remain ordinary pathname text:
 
 ```text
 ~
@@ -108,7 +134,9 @@ ${HOME2}
 foo/${HOME}/bar
 ```
 
-The expression is recognized only when the complete value is exactly `${HOME}` or starts with `${HOME}/`.
+The token is recognized only when the complete value is exactly `${HOME}` or starts with `${HOME}/`.
+
+This is a slink registry expression, not shell expansion.
 
 ## Why `${HOME}` instead of `~`
 
@@ -120,9 +148,9 @@ For example:
 link -> ~/source
 ```
 
-is a relative symlink target whose first pathname component is literally `~`. It is interpreted relative to the symlink's containing directory.
+is a relative symlink whose first component is literally `~`.
 
-Using `~` as registry HOME syntax would therefore collide directly with a valid and reasonably familiar symlink target representation. It also conflicts with canonical target cleanup:
+Using `~` as registry HOME syntax would therefore collide with ordinary symlink target text and with canonical target cleanup:
 
 ```text
 ./~/foo
@@ -130,44 +158,25 @@ Using `~` as registry HOME syntax would therefore collide directly with a valid 
 ~/foo
 ```
 
-If `~/foo` were HOME syntax, canonicalization could change the meaning of a hand-edited literal target.
-
-Using `${HOME}` separates the namespaces:
-
-```text
-~/foo
-    ordinary relative symlink target
-
-${HOME}/foo
-    registry HOME expression
-```
-
-This preserves literal `~` semantics without an escape rule.
+Using `${HOME}` keeps literal `~` available without adding an escape rule.
 
 ## Why not `$HOME`
 
-Supporting both `$HOME` and `${HOME}` would add syntax without adding capability.
+Supporting both `$HOME` and `${HOME}` adds syntax without adding capability.
 
-A single braced token gives an explicit boundary and avoids questions such as:
+The braced token gives an explicit boundary and avoids questions such as:
 
 ```text
 $HOMEfoo
 $HOME-suffix
-$HOME.src
 $USER
 ```
 
-The registry therefore defines exactly one predefined expression:
-
-```text
-${HOME}
-```
-
-This is not shell expansion.
+The registry therefore has exactly one predefined HOME expression.
 
 ## Expansion boundary
 
-HOME expansion occurs exactly once while interpreting registry source.
+HOME expansion occurs while interpreting registry source and before field-specific validation.
 
 Conceptually:
 
@@ -177,61 +186,47 @@ registry source
     v
 expand_registry_home()
     |
-    +-- link   -> link-specific validation/canonicalization
+    +-- link   -> link validation / normalization
     |
-    +-- target -> target-specific canonicalization
+    +-- target -> target canonicalization
     |
     v
-validated Entry
+concrete validated Entry
 ```
 
-No HOME expression is carried beyond that point.
-
-The following layers remain unaware of HOME syntax:
+The following layers do not carry HOME-expression state:
 
 ```text
 planning
 transactions
 pending state
-target_matches
+target comparison
 fix
 fix -f
 recovery
 symlink()
 ```
 
-This prevents an expression/materialized-value split from entering the runtime model.
+A serializer may later choose `${HOME}` spelling when writing the registry, but that is a source-format decision applied to a concrete `Entry`, not runtime target semantics.
 
 ## Link semantics
 
 For registry `link`:
 
-1. expand `${HOME}` if present;
+1. expand a leading HOME expression if present;
 2. require the resulting path to be absolute;
 3. apply the existing link normalization rules.
 
-Example:
-
-```toml
-link = "${HOME}/bin/tool"
-```
-
-may validate as:
-
-```text
-/Users/alice/bin/tool
-```
-
-Duplicate detection and other link identity checks operate on the concrete validated path.
+Duplicate detection and path identity checks operate on the concrete validated path.
 
 ## Target semantics
 
 For registry `target`:
 
-1. detect and expand a leading `${HOME}` expression before target canonicalization;
+1. detect and expand a leading HOME expression before target canonicalization;
 2. otherwise treat the value as ordinary pathname text;
 3. apply the existing canonical target rules;
-4. reject a canonical relative target that falls into the reserved HOME-expression form described below.
+4. reject a canonical **relative** target whose spelling falls into the reserved HOME-expression namespace.
 
 Examples:
 
@@ -249,12 +244,10 @@ Examples:
     -> literal relative target
 
 "foo/${HOME}/bar"
-    -> literal pathname text
+    -> literal relative target
 ```
 
-## Reserved canonical relative targets
-
-There is one unavoidable ambiguity for any string-level expression syntax.
+## Reserved canonical relative target spellings
 
 A literal relative symlink target can theoretically be:
 
@@ -262,54 +255,48 @@ A literal relative symlink target can theoretically be:
 ${HOME}/foo
 ```
 
-For example, the filesystem could contain a directory literally named `${HOME}`.
-
-If slink persisted that exact relative target in the registry, the next registry read would interpret it as a HOME expression.
+If slink persisted that exact relative spelling in the registry, the next registry read would interpret it as a HOME expression.
 
 The design intentionally does not add an escape language for this rare case.
 
-Instead, the canonical relative target forms:
+The canonical relative target spellings:
 
 ```text
 ${HOME}
 ${HOME}/...
 ```
 
-are reserved as **registry persistence spellings**.
+are therefore reserved as registry persistence spellings.
 
-This does not mean that an existing filesystem symlink with such a target is unmanageable. It means that slink must not persist that relative spelling verbatim as a concrete registry target.
+This is a registry encoding restriction, not a filesystem restriction.
 
 The response depends on the source:
 
 | Source | Behavior |
 | --- | --- |
-| registry source whose literal target canonicalizes into the reserved form | reject, because the hand-authored registry target is an explicit representation request |
-| `--relative` generation that produces the reserved form | reject, because `--relative` explicitly requests a relative representation |
-| `adopt` observing the reserved form from `readlink()` | preserve meaning by storing an equivalent safe absolute target |
-
-This is a registry encoding restriction, not a filesystem restriction. A directory named `${HOME}` remains valid.
+| hand-authored registry literal whose target canonicalizes into the reserved form | reject |
+| `--relative` generation that produces the reserved form | reject |
+| `adopt` observing the reserved form from `readlink()` | preserve meaning by registering an equivalent safe absolute target |
 
 ## Persistability invariant
 
-Every validated or generated `Entry` that slink may write must be safe to serialize as concrete registry text and read again without changing target meaning.
+Every validated or generated `Entry` that slink may write must be serializable under the registry's configured write style and readable again with the same target meaning.
 
 Conceptually:
 
 ```text
-validated Entry
+concrete validated Entry
     |
-    | slink-generated persistence
+    | configured serialization
     v
-registry concrete strings
+registry source
     |
     | parse + validate
     v
-same link and target meaning
+same concrete meaning
 ```
 
-This invariant is stronger and more precise than saying that every reserved-looking filesystem target is unsupported.
-
-A read-only validation does **not** rewrite registry source merely because canonicalization changes the in-memory spelling.
+A read-only validation does not rewrite registry source.
 
 For example:
 
@@ -317,33 +304,23 @@ For example:
 target = "./${HOME}/foo"
 ```
 
-is initially ordinary literal pathname text because it does not begin with the registry expression token.
+is not a HOME expression at the input boundary.
 
-Canonicalization gives:
+Canonicalization produces:
 
 ```text
 ${HOME}/foo
 ```
 
-The source file is still unchanged at this point.
+The source file is still unchanged. The problem is that the validated `Entry` contains only the canonical target and no provenance saying it originally came from `./${HOME}/foo`.
 
-The problem is that if slink accepted that value as a concrete validated target, a later operation that creates or updates that entry would persist:
+Persisting that relative canonical spelling later would be ambiguous on the next load. Therefore validation rejects the literal registry input once its canonical form enters the reserved namespace.
 
-```toml
-target = "${HOME}/foo"
-```
-
-and a fresh registry load would interpret it as a HOME expression.
-
-The validated `Entry` stores only canonical target text; it does not retain provenance saying that the value originally came from `./${HOME}/foo`. Adding such provenance would reintroduce the expression/materialized-state split this design is intended to avoid.
-
-Therefore literal registry input that canonicalizes into the reserved form is rejected during validation. The rejection establishes closure under future slink-generated persistence; it is not because validation itself immediately rewrites the file.
+The rejection establishes safe future persistence; it is not because validation itself immediately rewrites the file.
 
 ## Canonicalization order
 
-Expression recognition must happen before target canonicalization.
-
-For example:
+Expression recognition happens before target canonicalization.
 
 ```text
 "${HOME}/foo"
@@ -356,871 +333,210 @@ But:
 
 ```text
 "./${HOME}/foo"
-```
-
-is not a HOME expression at the input boundary.
-
-After canonicalization it would become:
-
-```text
-${HOME}/foo
-```
-
-which is reserved, so validation fails.
-
-This keeps canonicalization deterministic and avoids context-sensitive exceptions such as "preserve leading `./` only before a HOME-looking token."
-
-## Literal `~` behavior
-
-The following remain valid literal target representations:
-
-```text
-~/foo
-./~/foo
-../~/foo
-```
-
-Canonicalization may still remove syntactic noise according to the normal target rules, but no resulting leading `~` form has HOME semantics.
-
-This preserves existing filesystem behavior and allows `adopt` to retain ordinary literal `~` targets.
-
-## CLI behavior
-
-This design does not add `${HOME}` parsing to CLI operands.
-
-CLI path interpretation keeps its existing rules.
-
-In particular:
-
-- shells may expand `~` before slink is invoked;
-- any existing slink CLI HOME shorthand can remain as-is;
-- `${HOME}` passed as a CLI operand is not introduced as new syntax by this design.
-
-The special token belongs to **registry source syntax only**.
-
-This boundary keeps the feature narrow and avoids making CLI parsing, shell-like expansion, and registry parsing share a new expression language.
-
-## slink-generated registry output
-
-slink never emits `${HOME}` when it writes a new or updated value.
-
-A hand-edited entry may contain:
-
-```toml
-target = "${HOME}/src/tool"
-```
-
-and validate to:
-
-```text
-/Users/alice/src/tool
-```
-
-If slink later creates or updates that target field, it persists the concrete canonical representation:
-
-```toml
-target = "/Users/alice/src/tool"
-```
-
-Therefore:
-
-```text
-${HOME}
-    accepted input syntax
-
-${HOME}
-    not a canonical persistence format generated by slink
-```
-
-Validation should remain an in-memory interpretation step. Unrelated registry mutations should not rewrite untouched source entries merely to replace hand-authored `${HOME}`.
-
-## HOME changes
-
-A hand-authored `${HOME}` expression is evaluated during each fresh registry validation using the current HOME value.
-
-Once an operation crosses into concrete validated state, HOME is no longer consulted.
-
-Conceptually:
-
-```text
-registry source expression
-    |
-    | fresh validation
-    v
-concrete Entry
-    |
-    | transaction boundary
-    v
-concrete Pending state
-```
-
-A recovery operation therefore does not reinterpret HOME and does not depend on whether HOME changed after the transaction was recorded.
-
-## `adopt`
-
-`readlink()` output is always filesystem data, never registry expression syntax.
-
-Examples:
-
-```text
-readlink() == "~/foo"
-    -> ordinary target
-    -> may be adopted normally
-```
-
-For a target whose **canonical** spelling falls into the reserved persistence namespace:
-
-```text
-readlink() == "${HOME}/foo"
-
-or
-
-readlink() == "./${HOME}/foo"
+    -> not an expression at the input boundary
     -> canonical target "${HOME}/foo"
-```
-
-`adopt` should not reject the symlink merely because its existing relative spelling cannot be stored verbatim.
-
-Instead, it should use the existing link-aware reference interpretation to derive the same target meaning as a safe absolute target and store that concrete absolute representation.
-
-Conceptually:
-
-```text
-observed readlink target
-    |
-    | canonical_target()
-    v
-canonical observed target
-    |
-    | reserved?
-    +---- no  -> store canonical observed target
-    |
-    +---- yes -> canonical_reference(link, observed target)
-                 -> store safe absolute target
-```
-
-For example, if the link's effective containing directory is `/work`:
-
-```text
-readlink() == "${HOME}/foo"
-    -> filesystem meaning: /work/${HOME}/foo
-    -> registry target:   /work/${HOME}/foo
-```
-
-The `${HOME}` component in the resulting absolute path is embedded after the leading `/`, so it is ordinary pathname text and cannot be confused with the registry expression.
-
-The conversion must reuse the existing link-aware reference helper rather than naively doing only `link.parent().join(raw)`. The relative-target design already makes the link's effective containing directory authoritative in order to preserve behavior around symlink parents and meaningful path traversal.
-
-`adopt` still does not rewrite the filesystem.
-
-This exceptional representation conversion has two consequences:
-
-- ordinary `fix` leaves the existing relative symlink untouched while it remains semantically correct;
-- if the link is later missing, or if the user runs `fix -f`, slink materializes the registered safe absolute representation rather than recreating the reserved relative spelling.
-
-That is consistent with `adopt` remembering target meaning rather than promising byte-for-byte preservation of every observed target representation.
-
-## `--relative`
-
-Relative target generation follows the existing relative-target algorithm and round-trip verification.
-
-After producing the canonical relative candidate, slink checks the reserved namespace.
-
-Example:
-
-```text
-candidate = "../${HOME}/foo"
-    -> allowed
-
-candidate = "${HOME}/foo"
-    -> reserved
+    -> reserved relative spelling
     -> error
 ```
 
-Suggested error:
+This keeps canonicalization deterministic and avoids context-sensitive exceptions such as preserving a leading `./` only before a HOME-looking token.
 
-```text
-cannot represent target relatively:
-relative target "${HOME}/foo" conflicts with registry HOME syntax;
-omit --relative to use an absolute target
-```
+## Registry write preference
 
-The command should fail rather than silently fall back to an absolute target. `--relative` explicitly requests a representation, and silent fallback would weaken representation enforcement semantics.
+A registry may optionally choose how slink serializes HOME-based **absolute** paths when slink creates or updates an entry.
 
-## `fix`, `-f`, and semantic comparison
-
-No special HOME logic is required after validation.
-
-A registry HOME expression has already become a concrete canonical target before planning.
-
-Therefore:
-
-- normal target health remains based on semantic target comparison;
-- exact representation enforcement with `-f` remains unchanged;
-- missing-link `fix` writes the concrete registered target;
-- an adopted reserved relative spelling may therefore be recreated or force-normalized as its safe absolute registered representation;
-- transaction ownership/recovery remains exact target-text comparison.
-
-The HOME feature does not introduce a second target representation into these paths.
-
-## Transaction and recovery model
-
-No persistent HOME-specific state is added.
-
-In particular, do not add:
-
-```text
-home: bool
-expression: String
-materialized_target: String
-target_kind
-```
-
-to registry entries, plans, requests, or pending transactions.
-
-Pending state contains the same concrete target representation used by the existing relative-target design.
-
-This preserves the important distinction:
-
-```text
-steady-state correctness
-    -> semantic target equality
-
-transaction ownership/recovery
-    -> exact concrete target-text equality
-```
-
-## Implementation shape
-
-The feature should require only small path/registry helpers.
-
-Conceptually:
-
-```rust
-fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
-    if s == "${HOME}" {
-        Ok(Some(home()?))
-    } else if let Some(rest) = s.strip_prefix("${HOME}/") {
-        Ok(Some(home()?.join(rest)))
-    } else {
-        Ok(None)
-    }
-}
-```
-
-and:
-
-```rust
-fn is_reserved_home_target(target: &str) -> bool {
-    target == "${HOME}" || target.starts_with("${HOME}/")
-}
-```
-
-Registry target interpretation is conceptually:
-
-```rust
-fn registry_target(s: &str) -> Result<String> {
-    if let Some(expanded) = expand_registry_home(s)? {
-        return canonical_target(expanded);
-    }
-
-    let target = canonical_target(s)?;
-
-    if is_reserved_home_target(&target) {
-        bail!("relative target conflicts with reserved registry HOME syntax");
-    }
-
-    Ok(target)
-}
-```
-
-Adoption uses the same reserved-form predicate but a different response because its input is observed filesystem state rather than an explicit representation request:
-
-```rust
-fn adopt_target(link: &Path, raw: &str) -> Result<String> {
-    let target = canonical_target(raw)?;
-
-    if !is_reserved_home_target(&target) {
-        return Ok(target);
-    }
-
-    // Reuse the existing link-aware reference semantics from the
-    // relative-target model. The result is a safe absolute target.
-    canonical_reference(link, &target)
-}
-```
-
-The exact function names and visibility are not normative.
-
-The important structural property is that expression expansion stays at the registry boundary and all downstream code consumes concrete values. The reserved-form check is shared; only the boundary-specific response differs.
-
-## Validation matrix
-
-| Input/source | Meaning |
-|---|---|
-| registry `link = "${HOME}/bin/x"` | HOME expansion, then absolute link validation |
-| registry `target = "${HOME}/src/x"` | HOME expansion to absolute target |
-| registry `target = "../src/x"` | ordinary relative target |
-| registry `target = "~/src/x"` | literal `~` relative target |
-| registry `target = "$HOME/src/x"` | literal `$HOME` pathname |
-| registry `target = "${USER}/src/x"` | literal pathname |
-| registry `target = "foo/${HOME}/x"` | literal embedded component |
-| registry `target = "./${HOME}/x"` | error after canonicalization enters reserved persistence form |
-| `readlink() == "~/x"` during adopt | allowed literal target |
-| `readlink() == "${HOME}/x"` during adopt | store equivalent safe absolute target; do not rewrite symlink |
-| `readlink() == "./${HOME}/x"` during adopt | canonical form is reserved, so store equivalent safe absolute target |
-| generated relative target `../${HOME}/x` | allowed |
-| generated relative target `${HOME}/x` | error: reserved canonical relative target |
-
-## Error principles
-
-Errors should describe the representation conflict, not claim that the pathname is invalid.
-
-Good:
-
-```text
-relative target "${HOME}/foo" conflicts with reserved registry HOME syntax
-```
-
-Avoid:
-
-```text
-invalid path
-```
-
-because the underlying pathname may be perfectly valid outside the registry representation.
-
-This error applies when the user explicitly requests an unpersistable representation, such as hand-authored literal registry input or `--relative` output. `adopt` instead re-encodes an observed reserved target as a safe absolute representation.
-
-## Compatibility
-
-Existing registries without a leading `${HOME}` target or link expression retain their existing interpretation.
-
-Literal `~` targets remain valid and unchanged.
-
-No schema migration is required.
-
-There is one intentional syntax-compatibility boundary: an older slink version treats a source value beginning exactly with `${HOME}` as literal pathname text, while a version implementing this design treats it as the HOME expression. A pre-existing registry that intentionally used a literal leading `${HOME}` value must therefore be rewritten to an unambiguous representation, typically an equivalent absolute path, before relying on the new interpretation.
-
-Older slink versions likewise do not understand the new expression semantics, so registries using `${HOME}` as an expression require a version that implements this design.
-
-Because slink-generated output does not emit HOME expressions, the feature primarily affects explicitly hand-authored registry values.
-
-## Alternatives considered
-
-### Use `~` for HOME
-
-Rejected because it directly conflicts with real relative symlink targets such as:
-
-```text
-~/foo
-```
-
-and creates canonicalization/escape problems for forms such as `./~/foo`.
-
-### Use `$HOME`
-
-Rejected because it adds no capability beyond `${HOME}` while introducing less explicit token boundaries and stronger shell-variable expectations.
-
-### Support both `$HOME` and `${HOME}`
-
-Rejected as unnecessary syntax surface.
-
-### Add a `./` or backslash escape
-
-Rejected because canonical target normalization would need context-sensitive exceptions, complicating a representation model that is otherwise deterministic.
-
-### Store HOME expressions persistently
-
-Rejected because it would split registry expression from materialized symlink target and force planning, fixing, transaction, output, and recovery code to distinguish the two.
-
-### Use typed TOML
-
-For example:
+The proposed registry setting is:
 
 ```toml
-target = { home = "src/foo" }
+[format]
+home = "expression"
 ```
 
-This completely separates literal strings from expressions and can represent every ordinary string without reserving a namespace.
-
-It is not chosen because the additional schema/serde surface is disproportionate to the narrow HOME convenience being added.
-
-If exact representation of every theoretically valid relative target becomes a hard requirement in the future, typed syntax is the clean alternative.
-
-## Focused tests
-
-At minimum, implementation should cover:
-
-1. registry `link = "${HOME}/..."` expands and validates;
-2. registry `target = "${HOME}/..."` expands to a concrete absolute target;
-3. `target = "~/..."` remains literal;
-4. `target = "$HOME/..."` remains literal;
-5. embedded `${HOME}` remains literal;
-6. canonical `./${HOME}/...` is rejected as reserved;
-7. `adopt` preserves literal `~/...`;
-8. `adopt` converts an observed canonical reserved target such as `${HOME}/...` or `./${HOME}/...` to a semantically equivalent safe absolute registered target without rewriting the existing symlink;
-9. that adopt conversion uses the existing link-aware reference semantics and remains correct when the link parent is reached through symlinks;
-10. ordinary `fix` leaves the adopted reserved-spelling symlink untouched while it is semantically correct, while missing-link `fix` and `fix -f` materialize the registered safe absolute representation;
-11. relative generation rejects a candidate beginning with `${HOME}/...`;
-12. relative generation allows `../${HOME}/...`;
-13. pending transaction data contains only the concrete materialized target;
-14. recovery remains independent of later HOME changes;
-15. slink-generated registry writes never emit `${HOME}`;
-16. unrelated registry writes do not rewrite untouched hand-authored HOME expressions.
-
-## Final contract
-
-The feature can be summarized as:
-
-> Registry `link` and `target` values may use `${HOME}` or `${HOME}/...` as a HOME-relative input expression. Expansion occurs once during registry validation. Validated state and transactions contain only concrete canonical paths or targets, and slink never emits `${HOME}` itself. All other `# HOME path expression design
-
-## Status
-
-Design proposal.
-
-This document defines a minimal HOME-directory expression for registry `link` and `target` values while preserving the canonical relative-target model from the relative symlink target work.
-
-The design deliberately treats HOME notation as **registry input syntax**, not as persistent state and not as a general template language.
-
-## Goals
-
-- Allow users to write HOME-relative paths in registry `link` and `target` values.
-- Keep `Entry.link` and `Entry.target` concrete after validation.
-- Preserve literal `~` symlink targets and ordinary pathname semantics.
-- Preserve the meaning of already-existing symlinks during `adopt` even when their raw target spelling collides with registry expression syntax.
-- Keep `adopt`, `fix`, semantic comparison, transactions, and recovery on the existing concrete-target model.
-- Avoid a general environment-variable or interpolation language.
-- Avoid new persistent fields, enums, transaction variants, or recovery state.
-- Keep the implementation small enough to remain a parser/validation feature rather than a new subsystem.
-
-## Non-goals
-
-This design does not:
-
-- make the registry relocatable between different HOME directories;
-- introduce general `$VAR` or `${VAR}` expansion;
-- introduce shell expansion semantics;
-- make CLI operands a template language;
-- preserve HOME expressions as generated registry output;
-- preserve every observed relative target spelling as the registered representation when that spelling collides with reserved registry syntax.
-
-## Existing model
-
-The relative-target design defines the registry around two values:
+Supported values are:
 
 ```text
-link
-    managed symlink location
-
-target
-    canonical target text slink intends to materialize
+concrete
+expression
 ```
 
-The effective reference is derived from `(link, target)`.
-
-That model should remain unchanged. In particular, after validation:
+If `[format]` or `format.home` is absent, the default is:
 
 ```text
-Entry.link
-    concrete managed symlink location
-
-Entry.target
-    concrete canonical target text
+concrete
 ```
 
-`Entry.target` must not become an unevaluated expression. This keeps:
+The preference is registry-level, not a per-user environment or CLI preference. Source spelling belongs to the shared registry; two users should not cause the same registry to oscillate between concrete and expression spelling merely because their personal settings differ.
 
-- `symlink(&entry.target, &link)`;
-- semantic target comparison;
-- `fix`;
-- `fix -f`;
-- pending transactions;
-- exact recovery ownership;
+### `concrete`
 
-on the existing concrete-target representation.
-
-## Registry HOME expression
-
-Only these registry-source forms are special:
-
-```text
-${HOME}
-${HOME}/...
-```
-
-Examples:
+slink-generated values use the concrete validated path:
 
 ```toml
+[[link]]
+link = "/Users/alice/.local/bin/tool"
+target = "/Users/alice/src/tool"
+```
+
+Hand-authored HOME expressions are still accepted as input. If slink later rewrites that entry, the generated HOME-based absolute values use concrete spelling.
+
+### `expression`
+
+When slink creates or updates an entry, an absolute `link` or absolute `target` that is HOME itself or a descendant of HOME is serialized with the HOME token:
+
+```toml
+[format]
+home = "expression"
+
 [[link]]
 link = "${HOME}/.local/bin/tool"
 target = "${HOME}/src/tool"
 ```
 
-They are expanded to the current HOME directory during registry validation.
-
-For example, if HOME is `/Users/alice`:
+The in-memory entry remains concrete:
 
 ```text
-"${HOME}"
-    -> "/Users/alice"
-
-"${HOME}/src/tool"
-    -> "/Users/alice/src/tool"
+Entry.link   = /Users/alice/.local/bin/tool
+Entry.target = /Users/alice/src/tool
 ```
 
-No other form is special.
+Only registry serialization chooses the expression spelling.
 
-The following are ordinary pathname text:
+### Relative targets are never rewritten by the HOME preference
 
-```text
-~
-~/foo
-$HOME
-$HOME/foo
-${USER}
-${HOME2}
-foo/${HOME}/bar
-```
-
-The expression is recognized only when the complete value is exactly `${HOME}` or starts with `${HOME}/`.
-
-## Why `${HOME}` instead of `~`
-
-A symlink target does not assign HOME semantics to `~`.
+The HOME write preference must not change target representation style.
 
 For example:
 
-```text
-link -> ~/source
+```toml
+[format]
+home = "expression"
+
+[[link]]
+link = "${HOME}/project/bin/tool"
+target = "../src/tool"
 ```
 
-is a relative symlink target whose first pathname component is literally `~`. It is interpreted relative to the symlink's containing directory.
+The relative target remains `../src/tool`.
 
-Using `~` as registry HOME syntax would therefore collide directly with a valid and reasonably familiar symlink target representation. It also conflicts with canonical target cleanup:
+It must not be converted to:
 
-```text
-./~/foo
-    -> canonical target
-~/foo
+```toml
+target = "${HOME}/project/src/tool"
 ```
 
-If `~/foo` were HOME syntax, canonicalization could change the meaning of a hand-edited literal target.
+because that would change a relative representation into an absolute representation and would interfere with the `--relative` / `-f` model from #28.
 
-Using `${HOME}` separates the namespaces:
+Therefore HOME-expression serialization applies only to absolute values.
 
-```text
-~/foo
-    ordinary relative symlink target
+### HOME containment is component-based
 
-${HOME}/foo
-    registry HOME expression
-```
+The serializer determines whether an absolute value is HOME or a descendant of HOME by path components, not by raw string prefix.
 
-This preserves literal `~` semantics without an escape rule.
-
-## Why not `$HOME`
-
-Supporting both `$HOME` and `${HOME}` would add syntax without adding capability.
-
-A single braced token gives an explicit boundary and avoids questions such as:
+If HOME is:
 
 ```text
-$HOMEfoo
-$HOME-suffix
-$HOME.src
-$USER
+/Users/alice
 ```
 
-The registry therefore defines exactly one predefined expression:
+then:
 
 ```text
-${HOME}
+/Users/alice
+    -> ${HOME}
+
+/Users/alice/src/tool
+    -> ${HOME}/src/tool
+
+/Users/alice2/src/tool
+    -> not under HOME
+    -> remain concrete
 ```
 
-This is not shell expansion.
+The serializer must not resolve target symlinks merely to decide source spelling.
 
-## Expansion boundary
+### Embedded HOME-looking components remain literal
 
-HOME expansion occurs exactly once while interpreting registry source.
+If the concrete absolute path is:
 
-Conceptually:
+```text
+/Users/alice/${HOME}/foo
+```
+
+expression serialization may produce:
+
+```text
+${HOME}/${HOME}/foo
+```
+
+On the next read, only the leading token is special, producing the original concrete path:
+
+```text
+/Users/alice/${HOME}/foo
+```
+
+This round-trips safely.
+
+## No registry-wide normalization
+
+The write preference applies only when slink creates or updates an entry.
+
+It does **not** make the entire registry a canonical formatting surface.
+
+For example, after a user adds:
+
+```toml
+[format]
+home = "expression"
+```
+
+existing entries such as:
+
+```toml
+[[link]]
+link = "/Users/alice/bin/old"
+target = "/Users/alice/src/old"
+```
+
+remain unchanged until that entry itself is rewritten by slink.
+
+Changing or writing another entry must not normalize the untouched entry.
+
+This deliberately preserves the existing source-editing principle from #28: unrelated registry mutations do not become cleanup passes.
+
+Users who want an existing registry fully converted to HOME expressions can perform a one-time manual replacement. The design does not add automatic whole-file normalization or a `slink format` command for this feature.
+
+### Updated entry, not per-field provenance
+
+The implementation does not need to remember which individual field was originally hand-authored or whether a source expression was used.
+
+When slink creates or updates an entry, the values it writes for that entry follow the registry write preference. Other entries retain their source spelling.
+
+This avoids per-field dirty/provenance state while keeping unrelated entries untouched.
+
+## slink-generated output under each style
+
+With HOME `/Users/alice`:
+
+| Concrete validated value | `home = "concrete"` | `home = "expression"` |
+| --- | --- | --- |
+| link `/Users/alice/bin/x` | `/Users/alice/bin/x` | `${HOME}/bin/x` |
+| target `/Users/alice/src/x` | `/Users/alice/src/x` | `${HOME}/src/x` |
+| target `/opt/x` | `/opt/x` | `/opt/x` |
+| target `../src/x` | `../src/x` | `../src/x` |
+| target `~/src/x` | `~/src/x` | `~/src/x` |
+
+The write preference never changes the concrete runtime meaning.
+
+## HOME changes
+
+A source HOME expression is evaluated during each fresh registry validation using the current HOME value.
+
+Once an operation enters validated runtime state, HOME expression syntax is gone:
 
 ```text
 registry source
     |
-    v
-expand_registry_home()
-    |
-    +-- link   -> link-specific validation/canonicalization
-    |
-    +-- target -> target-specific canonicalization
-    |
-    v
-validated Entry
-```
-
-No HOME expression is carried beyond that point.
-
-The following layers remain unaware of HOME syntax:
-
-```text
-planning
-transactions
-pending state
-target_matches
-fix
-fix -f
-recovery
-symlink()
-```
-
-This prevents an expression/materialized-value split from entering the runtime model.
-
-## Link semantics
-
-For registry `link`:
-
-1. expand `${HOME}` if present;
-2. require the resulting path to be absolute;
-3. apply the existing link normalization rules.
-
-Example:
-
-```toml
-link = "${HOME}/bin/tool"
-```
-
-may validate as:
-
-```text
-/Users/alice/bin/tool
-```
-
-Duplicate detection and other link identity checks operate on the concrete validated path.
-
-## Target semantics
-
-For registry `target`:
-
-1. detect and expand a leading `${HOME}` expression before target canonicalization;
-2. otherwise treat the value as ordinary pathname text;
-3. apply the existing canonical target rules;
-4. reject a canonical relative target that falls into the reserved HOME-expression form described below.
-
-Examples:
-
-```text
-"${HOME}/src/tool"
-    -> absolute concrete target
-
-"../src/tool"
-    -> relative target
-
-"~/src/tool"
-    -> literal relative target
-
-"$HOME/src/tool"
-    -> literal relative target
-
-"foo/${HOME}/bar"
-    -> literal pathname text
-```
-
-## Reserved canonical relative targets
-
-There is one unavoidable ambiguity for any string-level expression syntax.
-
-A literal relative symlink target can theoretically be:
-
-```text
-${HOME}/foo
-```
-
-For example, the filesystem could contain a directory literally named `${HOME}`.
-
-If slink persisted that exact relative target in the registry, the next registry read would interpret it as a HOME expression.
-
-The design intentionally does not add an escape language for this rare case.
-
-Instead, the canonical relative target forms:
-
-```text
-${HOME}
-${HOME}/...
-```
-
-are reserved as **registry persistence spellings**.
-
-This does not mean that an existing filesystem symlink with such a target is unmanageable. It means that slink must not persist that relative spelling verbatim as a concrete registry target.
-
-The response depends on the source:
-
-| Source | Behavior |
-| --- | --- |
-| registry source whose literal target canonicalizes into the reserved form | reject, because the hand-authored registry target is an explicit representation request |
-| `--relative` generation that produces the reserved form | reject, because `--relative` explicitly requests a relative representation |
-| `adopt` observing the reserved form from `readlink()` | preserve meaning by storing an equivalent safe absolute target |
-
-This is a registry encoding restriction, not a filesystem restriction. A directory named `${HOME}` remains valid.
-
-## Persistability invariant
-
-Every validated or generated `Entry` that slink may write must be safe to serialize as concrete registry text and read again without changing target meaning.
-
-Conceptually:
-
-```text
-validated Entry
-    |
-    | slink-generated persistence
-    v
-registry concrete strings
-    |
-    | parse + validate
-    v
-same link and target meaning
-```
-
-This invariant is stronger and more precise than saying that every reserved-looking filesystem target is unsupported.
-
-A read-only validation does **not** rewrite registry source merely because canonicalization changes the in-memory spelling.
-
-For example:
-
-```toml
-target = "./${HOME}/foo"
-```
-
-is initially ordinary literal pathname text because it does not begin with the registry expression token.
-
-Canonicalization gives:
-
-```text
-${HOME}/foo
-```
-
-The source file is still unchanged at this point.
-
-The problem is that if slink accepted that value as a concrete validated target, a later operation that creates or updates that entry would persist:
-
-```toml
-target = "${HOME}/foo"
-```
-
-and a fresh registry load would interpret it as a HOME expression.
-
-The validated `Entry` stores only canonical target text; it does not retain provenance saying that the value originally came from `./${HOME}/foo`. Adding such provenance would reintroduce the expression/materialized-state split this design is intended to avoid.
-
-Therefore literal registry input that canonicalizes into the reserved form is rejected during validation. The rejection establishes closure under future slink-generated persistence; it is not because validation itself immediately rewrites the file.
-
-## Canonicalization order
-
-Expression recognition must happen before target canonicalization.
-
-For example:
-
-```text
-"${HOME}/foo"
-    -> HOME expression
-    -> expand
-    -> canonicalize concrete absolute target
-```
-
-But:
-
-```text
-"./${HOME}/foo"
-```
-
-is not a HOME expression at the input boundary.
-
-After canonicalization it would become:
-
-```text
-${HOME}/foo
-```
-
-which is reserved, so validation fails.
-
-This keeps canonicalization deterministic and avoids context-sensitive exceptions such as "preserve leading `./` only before a HOME-looking token."
-
-## Literal `~` behavior
-
-The following remain valid literal target representations:
-
-```text
-~/foo
-./~/foo
-../~/foo
-```
-
-Canonicalization may still remove syntactic noise according to the normal target rules, but no resulting leading `~` form has HOME semantics.
-
-This preserves existing filesystem behavior and allows `adopt` to retain ordinary literal `~` targets.
-
-## CLI behavior
-
-This design does not add `${HOME}` parsing to CLI operands.
-
-CLI path interpretation keeps its existing rules.
-
-In particular:
-
-- shells may expand `~` before slink is invoked;
-- any existing slink CLI HOME shorthand can remain as-is;
-- `${HOME}` passed as a CLI operand is not introduced as new syntax by this design.
-
-The special token belongs to **registry source syntax only**.
-
-This boundary keeps the feature narrow and avoids making CLI parsing, shell-like expansion, and registry parsing share a new expression language.
-
-## slink-generated registry output
-
-slink never emits `${HOME}` when it writes a new or updated value.
-
-A hand-edited entry may contain:
-
-```toml
-target = "${HOME}/src/tool"
-```
-
-and validate to:
-
-```text
-/Users/alice/src/tool
-```
-
-If slink later creates or updates that target field, it persists the concrete canonical representation:
-
-```toml
-target = "/Users/alice/src/tool"
-```
-
-Therefore:
-
-```text
-${HOME}
-    accepted input syntax
-
-${HOME}
-    not a canonical persistence format generated by slink
-```
-
-Validation should remain an in-memory interpretation step. Unrelated registry mutations should not rewrite untouched source entries merely to replace hand-authored `${HOME}`.
-
-## HOME changes
-
-A hand-authored `${HOME}` expression is evaluated during each fresh registry validation using the current HOME value.
-
-Once an operation crosses into concrete validated state, HOME is no longer consulted.
-
-Conceptually:
-
-```text
-registry source expression
-    |
-    | fresh validation
+    | validation under current HOME
     v
 concrete Entry
     |
@@ -1229,21 +545,29 @@ concrete Entry
 concrete Pending state
 ```
 
-A recovery operation therefore does not reinterpret HOME and does not depend on whether HOME changed after the transaction was recorded.
+Pending transactions contain concrete target text. Recovery therefore does not reinterpret a stored pending target according to a later HOME value.
+
+If the registry uses `home = "expression"`, future fresh reads intentionally resolve those source expressions under the then-current HOME. That is source semantics, not transaction semantics.
+
+## CLI behavior
+
+This design does not add `${HOME}` parsing to CLI operands.
+
+CLI operands keep the existing rules. Shell expansion and any existing CLI `~` handling remain separate from registry expression parsing.
 
 ## `adopt`
 
-`readlink()` output is always filesystem data, never registry expression syntax.
+`readlink()` output is filesystem data, never registry expression syntax.
 
-Examples:
+A literal target such as:
 
 ```text
-readlink() == "~/foo"
-    -> ordinary target
-    -> may be adopted normally
+~/foo
 ```
 
-For a target whose **canonical** spelling falls into the reserved persistence namespace:
+remains an ordinary relative target and may be adopted normally.
+
+For a target whose canonical spelling falls into the reserved namespace:
 
 ```text
 readlink() == "${HOME}/foo"
@@ -1254,54 +578,52 @@ readlink() == "./${HOME}/foo"
     -> canonical target "${HOME}/foo"
 ```
 
-`adopt` should not reject the symlink merely because its existing relative spelling cannot be stored verbatim.
+`adopt` should preserve its meaning rather than reject the existing symlink.
 
-Instead, it should use the existing link-aware reference interpretation to derive the same target meaning as a safe absolute target and store that concrete absolute representation.
-
-Conceptually:
+It uses the existing link-aware reference interpretation to derive a safe absolute target:
 
 ```text
-observed readlink target
+observed target
     |
     | canonical_target()
     v
 canonical observed target
     |
     | reserved?
-    +---- no  -> store canonical observed target
+    +---- no  -> concrete target remains as observed canonical representation
     |
     +---- yes -> canonical_reference(link, observed target)
-                 -> store safe absolute target
+                 -> safe absolute target
 ```
 
-For example, if the link's effective containing directory is `/work`:
+The existing symlink is not rewritten.
+
+The resulting concrete entry is then passed through the ordinary registry serializer:
+
+- with `home = "concrete"`, the safe absolute target is written concretely;
+- with `home = "expression"`, it may be shortened to a leading HOME expression if and only if that absolute target is under HOME.
+
+For example, with HOME `/Users/alice` and an adopted target whose safe absolute meaning is:
 
 ```text
-readlink() == "${HOME}/foo"
-    -> filesystem meaning: /work/${HOME}/foo
-    -> registry target:   /work/${HOME}/foo
+/Users/alice/work/${HOME}/foo
 ```
 
-The `${HOME}` component in the resulting absolute path is embedded after the leading `/`, so it is ordinary pathname text and cannot be confused with the registry expression.
+expression serialization may write:
 
-The conversion must reuse the existing link-aware reference helper rather than naively doing only `link.parent().join(raw)`. The relative-target design already makes the link's effective containing directory authoritative in order to preserve behavior around symlink parents and meaningful path traversal.
+```toml
+target = "${HOME}/work/${HOME}/foo"
+```
 
-`adopt` still does not rewrite the filesystem.
+which reads back to the same concrete path.
 
-This exceptional representation conversion has two consequences:
-
-- ordinary `fix` leaves the existing relative symlink untouched while it remains semantically correct;
-- if the link is later missing, or if the user runs `fix -f`, slink materializes the registered safe absolute representation rather than recreating the reserved relative spelling.
-
-That is consistent with `adopt` remembering target meaning rather than promising byte-for-byte preservation of every observed target representation.
+Ordinary `fix` leaves the existing symlink untouched while it remains semantically correct. If the link is later missing, or if `fix -f` enforces the registered representation, slink materializes the concrete target represented by the registry source.
 
 ## `--relative`
 
-Relative target generation follows the existing relative-target algorithm and round-trip verification.
+Relative target generation follows the existing #28 algorithm and round-trip verification.
 
 After producing the canonical relative candidate, slink checks the reserved namespace.
-
-Example:
 
 ```text
 candidate = "../${HOME}/foo"
@@ -1312,64 +634,56 @@ candidate = "${HOME}/foo"
     -> error
 ```
 
-Suggested error:
+The command fails rather than silently falling back to an absolute target. `--relative` explicitly requests a relative representation.
 
-```text
-cannot represent target relatively:
-relative target "${HOME}/foo" conflicts with registry HOME syntax;
-omit --relative to use an absolute target
-```
-
-The command should fail rather than silently fall back to an absolute target. `--relative` explicitly requests a representation, and silent fallback would weaken representation enforcement semantics.
+The HOME write preference does not change this result because it never converts relative targets.
 
 ## `fix`, `-f`, and semantic comparison
 
-No special HOME logic is required after validation.
-
-A registry HOME expression has already become a concrete canonical target before planning.
+No HOME-expression state is required after validation.
 
 Therefore:
 
-- normal target health remains based on semantic target comparison;
-- exact representation enforcement with `-f` remains unchanged;
-- missing-link `fix` writes the concrete registered target;
-- an adopted reserved relative spelling may therefore be recreated or force-normalized as its safe absolute registered representation;
-- transaction ownership/recovery remains exact target-text comparison.
+- normal health uses the existing semantic target comparison;
+- `fix` writes the concrete validated target for a missing link;
+- `fix -f` enforces the concrete validated registered representation;
+- an adopted reserved relative spelling may therefore be recreated or force-normalized as its safe absolute representation;
+- transaction ownership and recovery retain exact target-text comparison.
 
-The HOME feature does not introduce a second target representation into these paths.
+Registry source spelling and symlink target spelling remain separate concerns.
 
 ## Transaction and recovery model
 
-No persistent HOME-specific state is added.
+No HOME-specific expression state is added to pending operations.
 
-In particular, do not add:
+Pending state contains the same concrete target representation used by #28.
 
-```text
-home: bool
-expression: String
-materialized_target: String
-target_kind
-```
-
-to registry entries, plans, requests, or pending transactions.
-
-Pending state contains the same concrete target representation used by the existing relative-target design.
-
-This preserves the important distinction:
+The existing distinction remains:
 
 ```text
 steady-state correctness
-    -> semantic target equality
+    -> semantic reference equality
 
-transaction ownership/recovery
+transaction ownership / recovery
     -> exact concrete target-text equality
 ```
 
+The registry write preference is not part of transaction identity.
+
 ## Implementation shape
 
-The feature should require only small path/registry helpers.
+The feature can stay at the registry/path boundary.
 
 Conceptually:
+
+```rust
+enum HomeWriteStyle {
+    Concrete,
+    Expression,
+}
+```
+
+Registry parsing expands source expressions:
 
 ```rust
 fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
@@ -1383,7 +697,7 @@ fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
 }
 ```
 
-and:
+Reserved relative spellings use one predicate:
 
 ```rust
 fn is_reserved_home_target(target: &str) -> bool {
@@ -1391,12 +705,12 @@ fn is_reserved_home_target(target: &str) -> bool {
 }
 ```
 
-Registry target interpretation is conceptually:
+Registry target interpretation remains concrete:
 
 ```rust
 fn registry_target(s: &str) -> Result<String> {
     if let Some(expanded) = expand_registry_home(s)? {
-        return canonical_target(expanded);
+        return canonical_target(text(&expanded)?);
     }
 
     let target = canonical_target(s)?;
@@ -1409,117 +723,116 @@ fn registry_target(s: &str) -> Result<String> {
 }
 ```
 
-Adoption uses the same reserved-form predicate but a different response because its input is observed filesystem state rather than an explicit representation request:
+Serialization is separate:
 
 ```rust
-fn adopt_target(link: &Path, raw: &str) -> Result<String> {
-    let target = canonical_target(raw)?;
+fn serialize_home_absolute(path: &Path, style: HomeWriteStyle) -> Result<String> {
+    if style == HomeWriteStyle::Expression {
+        let home = home()?;
 
-    if !is_reserved_home_target(&target) {
-        return Ok(target);
+        if path == home {
+            return Ok("${HOME}".to_owned());
+        }
+
+        if let Ok(rest) = path.strip_prefix(&home) {
+            return Ok(format!("${HOME}/{}", text(rest)?));
+        }
     }
 
-    // Reuse the existing link-aware reference semantics from the
-    // relative-target model. The result is a safe absolute target.
-    canonical_reference(link, &target)
+    Ok(text(path)?.to_owned())
 }
 ```
 
-The exact function names and visibility are not normative.
+The production implementation should handle empty remainders and separators through path components rather than relying on the illustrative string formatting above.
 
-The important structural property is that expression expansion stays at the registry boundary and all downstream code consumes concrete values. The reserved-form check is shared; only the boundary-specific response differs.
+For `target`, the serializer is called only when the concrete target is absolute. Relative targets are returned unchanged.
 
-## Validation matrix
+The registry document writer applies this policy only to entries it creates or updates. It clones and preserves source text for unrelated entries as it does today.
 
-| Input/source | Meaning |
-|---|---|
-| registry `link = "${HOME}/bin/x"` | HOME expansion, then absolute link validation |
-| registry `target = "${HOME}/src/x"` | HOME expansion to absolute target |
-| registry `target = "../src/x"` | ordinary relative target |
-| registry `target = "~/src/x"` | literal `~` relative target |
-| registry `target = "$HOME/src/x"` | literal `$HOME` pathname |
-| registry `target = "${USER}/src/x"` | literal pathname |
-| registry `target = "foo/${HOME}/x"` | literal embedded component |
-| registry `target = "./${HOME}/x"` | error after canonicalization enters reserved persistence form |
-| `readlink() == "~/x"` during adopt | allowed literal target |
-| `readlink() == "${HOME}/x"` during adopt | store equivalent safe absolute target; do not rewrite symlink |
-| `readlink() == "./${HOME}/x"` during adopt | canonical form is reserved, so store equivalent safe absolute target |
-| generated relative target `../${HOME}/x` | allowed |
-| generated relative target `${HOME}/x` | error: reserved canonical relative target |
+Adoption continues to use the shared reserved-form predicate but resolves the exceptional observed relative spelling through the existing link-aware reference helper before serialization.
 
-## Error principles
+## Validation and serialization matrix
 
-Errors should describe the representation conflict, not claim that the pathname is invalid.
+| Source / operation | Concrete runtime value | Generated source under `concrete` | Generated source under `expression` |
+| --- | --- | --- | --- |
+| registry `link = "${HOME}/bin/x"` | `/Users/alice/bin/x` | only if rewritten: `/Users/alice/bin/x` | only if rewritten: `${HOME}/bin/x` |
+| registry `target = "${HOME}/src/x"` | `/Users/alice/src/x` | only if rewritten: `/Users/alice/src/x` | only if rewritten: `${HOME}/src/x` |
+| create absolute target under HOME | absolute | absolute | HOME expression |
+| create target outside HOME | absolute | absolute | absolute |
+| `--relative` target `../src/x` | relative | relative | relative |
+| literal target `~/src/x` | relative | relative | relative |
+| registry `target = "./${HOME}/x"` | rejected | n/a | n/a |
+| adopt raw `${HOME}/x` | safe absolute reference | safe absolute | HOME expression only if safe absolute is under HOME |
+| update another entry | unchanged entry stays source-identical | unchanged | unchanged |
 
-Good:
+## Errors
+
+Errors should describe representation conflicts rather than claim the underlying pathname is invalid.
+
+Example:
 
 ```text
 relative target "${HOME}/foo" conflicts with reserved registry HOME syntax
 ```
 
-Avoid:
+This applies to explicit unpersistable relative representations such as hand-authored literal registry input or `--relative` output.
+
+`adopt` instead re-encodes an observed reserved relative target as a safe absolute representation.
+
+Invalid `format.home` values should report the accepted values:
 
 ```text
-invalid path
+format.home must be "concrete" or "expression"
 ```
-
-because the underlying pathname may be perfectly valid outside the registry representation.
-
-This error applies when the user explicitly requests an unpersistable representation, such as hand-authored literal registry input or `--relative` output. `adopt` instead re-encodes an observed reserved target as a safe absolute representation.
 
 ## Compatibility
 
-Existing registries without a leading `${HOME}` target or link expression retain their existing interpretation.
+The default write style is `concrete`, so registries that do not opt into `[format]` keep the existing slink-generated persistence behavior.
 
-Literal `~` targets remain valid and unchanged.
+No per-entry schema migration is required.
 
-No schema migration is required.
+A new slink version is required for:
 
-There is one intentional syntax-compatibility boundary: an older slink version treats a source value beginning exactly with `${HOME}` as literal pathname text, while a version implementing this design treats it as the HOME expression. A pre-existing registry that intentionally used a literal leading `${HOME}` value must therefore be rewritten to an unambiguous representation, typically an equivalent absolute path, before relying on the new interpretation.
+- leading `${HOME}` expression semantics;
+- the optional `[format]` table.
 
-Older slink versions likewise do not understand the new expression semantics, so registries using `${HOME}` as an expression require a version that implements this design.
+Older slink versions reject the new top-level `format` field under the current strict registry schema, so a registry using `[format]` intentionally requires the new version.
 
-Because slink-generated output does not emit HOME expressions, the feature primarily affects explicitly hand-authored registry values.
+There is also one syntax-compatibility boundary: an old version treats a leading `${HOME}` target string as literal pathname text, whereas this design treats it as the HOME expression.
+
+Literal `~` targets remain unchanged.
 
 ## Alternatives considered
 
 ### Use `~` for HOME
 
-Rejected because it directly conflicts with real relative symlink targets such as:
-
-```text
-~/foo
-```
-
-and creates canonicalization/escape problems for forms such as `./~/foo`.
+Rejected because it collides directly with real relative symlink target text and canonicalization.
 
 ### Use `$HOME`
 
-Rejected because it adds no capability beyond `${HOME}` while introducing less explicit token boundaries and stronger shell-variable expectations.
+Rejected because it adds no capability beyond the braced token while introducing less explicit boundaries and stronger shell-variable expectations.
 
 ### Support both `$HOME` and `${HOME}`
 
 Rejected as unnecessary syntax surface.
 
-### Use `${SLINK_HOME}`
+### Add an escape syntax
 
-This would make the token more obviously slink-specific and would make accidental literal collisions even less likely.
+Rejected because canonical target normalization would need context-sensitive exceptions.
 
-It is not chosen because it is longer, less immediately readable as "the user's home directory", and looks like a reference to an environment variable named `SLINK_HOME` even though the proposed feature reads the normal HOME directory.
+### Carry expressions in runtime state
 
-It also does not remove the structural collision: a literal relative target named `${SLINK_HOME}/foo` would still need the same persistence rule. It only makes that collision rarer.
+Rejected because it would split expression from materialized target and complicate planning, fixing, transactions, and recovery.
 
-`${HOME}` therefore keeps the user-facing syntax familiar while the reserved persistence invariant handles the rare ambiguity explicitly.
+### Normalize the entire registry when write style changes
 
-### Add a `./` or backslash escape
+Rejected for this feature.
 
-Rejected because canonical target normalization would need context-sensitive exceptions, complicating a representation model that is otherwise deterministic.
+Existing absolute HOME paths are easy to replace manually if a user wants a one-time conversion. Automatic normalization would add unrelated diffs, require rules for when cleanup occurs, and weaken the existing principle that unrelated registry entries retain their source spelling.
 
-### Store HOME expressions persistently
+The write preference therefore governs future slink-generated entry writes only.
 
-Rejected because it would split registry expression from materialized symlink target and force planning, fixing, transaction, output, and recovery code to distinguish the two.
-
-### Use typed TOML
+### Use typed TOML expressions
 
 For example:
 
@@ -1529,9 +842,9 @@ target = { home = "src/foo" }
 
 This completely separates literal strings from expressions and can represent every ordinary string without reserving a namespace.
 
-It is not chosen because the additional schema/serde surface is disproportionate to the narrow HOME convenience being added.
+It is not chosen because the additional schema and serialization surface is disproportionate to this narrow HOME convenience.
 
-If exact representation of every theoretically valid relative target becomes a hard requirement in the future, typed syntax is the clean alternative.
+If exact representation of every theoretically valid relative target becomes a hard requirement, typed syntax remains the clean fallback.
 
 ## Focused tests
 
@@ -1543,21 +856,28 @@ At minimum, implementation should cover:
 4. `target = "$HOME/..."` remains literal;
 5. embedded `${HOME}` remains literal;
 6. canonical `./${HOME}/...` is rejected as reserved;
-7. `adopt` preserves literal `~/...`;
-8. `adopt` converts an observed canonical reserved target such as `${HOME}/...` or `./${HOME}/...` to a semantically equivalent safe absolute registered target without rewriting the existing symlink;
-9. that adopt conversion uses the existing link-aware reference semantics and remains correct when the link parent is reached through symlinks;
-10. ordinary `fix` leaves the adopted reserved-spelling symlink untouched while it is semantically correct, while missing-link `fix` and `fix -f` materialize the registered safe absolute representation;
-11. relative generation rejects a candidate beginning with `${HOME}/...`;
-12. relative generation allows `../${HOME}/...`;
-13. pending transaction data contains only the concrete materialized target;
-14. recovery remains independent of later HOME changes;
-15. slink-generated registry writes never emit `${HOME}`;
-16. unrelated registry writes do not rewrite untouched hand-authored HOME expressions.
+7. absent `format.home` defaults to `concrete`;
+8. explicit `format.home = "concrete"` writes HOME-based absolute values concretely;
+9. `format.home = "expression"` writes newly created or updated HOME-based absolute `link` and `target` values with `${HOME}`;
+10. expression mode leaves relative targets unchanged;
+11. expression mode leaves absolute paths outside HOME concrete;
+12. HOME containment is component-based, so a sibling such as `/Users/alice2` is not shortened when HOME is `/Users/alice`;
+13. updating one entry does not rewrite another entry merely to apply the HOME write preference;
+14. changing the write preference does not automatically normalize existing entries;
+15. updating an entry serializes that entry according to the current registry write preference without adding per-field provenance state;
+16. `adopt` preserves literal `~/...`;
+17. `adopt` converts an observed reserved target to a semantically equivalent safe absolute target without rewriting the existing symlink;
+18. adopt conversion remains correct through symlink parents by reusing the existing link-aware reference semantics;
+19. expression mode may serialize the safe adopted absolute target with a leading HOME expression when it lies under HOME;
+20. relative generation rejects a candidate beginning with `${HOME}/...`;
+21. relative generation allows `../${HOME}/...`;
+22. pending transaction data contains only the concrete materialized target;
+23. recovery remains independent of later HOME changes.
 
 ## Final contract
 
 The feature can be summarized as:
 
- and `~` forms are literal. Canonical relative target spellings beginning with `${HOME}` are reserved for registry persistence: explicit registry literals and `--relative` generation reject that representation, while `adopt` preserves an already-existing symlink's meaning by registering an equivalent safe absolute target without rewriting the filesystem.
+> Registry `link` and `target` values may use `${HOME}` or `${HOME}/...` as a HOME-relative source expression. Validation always produces concrete runtime entries. The registry may choose `format.home = "concrete"` (the default) or `"expression"` for slink-generated writes of newly created or updated entries; expression mode shortens only absolute values that are HOME or descendants of HOME, never relative targets. Unrelated existing entries retain their source spelling and are not normalized automatically. Canonical relative target spellings beginning with `${HOME}` remain reserved: explicit registry literals and `--relative` generation reject that representation, while `adopt` preserves an existing symlink's meaning by registering a safe absolute target before ordinary serialization.
 
-This keeps HOME support at the configuration boundary while preserving the existing relative-target, transaction, and recovery model.
+This keeps HOME semantics at the registry boundary, keeps runtime and transaction state concrete, and makes source spelling a small registry-level write preference rather than a second target model.
