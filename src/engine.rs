@@ -61,8 +61,13 @@ pub fn run(args: Args) -> Result<u8> {
     if let Some(p) = transaction::load(&r)? {
         let same_request = p.request == Request::from(&args);
         let same_selection = if args.command == Command::Create {
-            paths::link_from_cli(&args.operands[1])? == p.link
-                && paths::target_from_cli(&args.operands[0])? == p.entry.target
+            let link = paths::link_from_cli(&args.operands[1])?;
+            link == p.link
+                && paths::materialize_create_target(
+                    &link,
+                    &args.operands[0],
+                    args.relative,
+                )? == p.entry.target
         } else {
             (args.command == Command::Fix && args.operands.is_empty())
                 || args
@@ -232,8 +237,13 @@ fn plan_link(r: &Registry, args: &Args, entry: Entry, after: String) -> Result<P
     paths::reject_self_reference(&link, &entry.target)?;
     let old = inspect::snapshot(&link)?;
     let change = match old {
+        Some(old) if old.target == entry.target => Change::Keep(Some(old)),
         Some(old) if paths::target_matches(&link, &old.target, &entry.target)? => {
-            Change::Keep(Some(old))
+            if args.force {
+                Change::Replace(old)
+            } else {
+                Change::Keep(Some(old))
+            }
         }
         Some(old) if args.force => Change::Replace(old),
         Some(old) => bail!(inspect::TargetMismatch {
@@ -264,7 +274,11 @@ fn plan_create(r: &Registry, args: &Args) -> Result<Plan> {
     let link = paths::link_from_cli(&args.operands[1])?;
     let entry = Entry {
         link: paths::text(&link)?.to_owned(),
-        target: paths::target_from_cli(&args.operands[0])?,
+        target: paths::materialize_create_target(
+            &link,
+            &args.operands[0],
+            args.relative,
+        )?,
     };
     let after = r.render(&r.with_entry(&entry)?);
     plan_link(r, args, entry, after)
@@ -276,7 +290,7 @@ fn plan_adopt(r: &Registry, link: PathBuf) -> Result<Plan> {
     let old = inspect::snapshot(&link)?.context("no symlink to adopt")?;
     let entry = Entry {
         link: paths::text(&link)?.to_owned(),
-        target: paths::reference_target(&link, &old.target)?,
+        target: paths::canonical_target(&old.target)?,
     };
     let after = r.render(&r.with_entry(&entry)?);
     Ok(Plan {
