@@ -317,7 +317,7 @@ fn recovery_failures_use_the_same_error_block_and_keep_the_pending_operation() {
 }
 
 #[test]
-fn adopted_relative_targets_are_reported_as_the_registered_absolute_reference() {
+fn adopted_relative_targets_are_reported_as_the_registered_relative_target() {
     let f = Fixture::new();
     f.write("home/source", "data");
     symlink("source", f.path("home/link")).unwrap();
@@ -327,7 +327,7 @@ fn adopted_relative_targets_are_reported_as_the_registered_absolute_reference() 
         format!(
             "✓ {:?} — registered\n  → {:?}\n",
             f.path("home/link"),
-            f.path("home/source")
+            "source"
         )
     );
     assert_eq!(f.target("home/link").to_str().unwrap(), "source");
