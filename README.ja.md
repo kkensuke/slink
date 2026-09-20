@@ -2,7 +2,7 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-`slink` は、TOML ファイルを基に、シンボリックリンク（以下、リンク）を安全に作成・管理する macOS 向け CLI です。
+`slink` は、TOML ファイルを基に、シンボリックリンク（以下、リンク）を安全に作成・管理する macOS & Linux 向け CLI です。
 
 ## インストール
 
