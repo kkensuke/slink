@@ -311,3 +311,33 @@ pub fn target_path(link: &Path, target: &str) -> PathBuf {
         link.parent().expect("validated link").join(target)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_target;
+
+    #[test]
+    fn canonical_target_removes_only_meaningless_spelling() {
+        for (input, expected) in [
+            ("./foo", "foo"),
+            ("foo/./bar", "foo/bar"),
+            ("foo//bar", "foo/bar"),
+            ("foo/.", "foo/"),
+            ("foo/./", "foo/"),
+            ("a/../b", "a/../b"),
+            ("../a/./b", "../a/b"),
+            (".", "."),
+            ("./", "./"),
+            ("//server//a/./b/.", "//server/a/b/"),
+        ] {
+            let canonical = canonical_target(input).unwrap();
+            assert_eq!(canonical, expected, "input={input:?}");
+            assert_eq!(
+                canonical_target(&canonical).unwrap(),
+                expected,
+                "idempotence input={input:?}"
+            );
+        }
+    }
+}
