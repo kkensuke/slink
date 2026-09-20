@@ -63,11 +63,8 @@ pub fn run(args: Args) -> Result<u8> {
         let same_selection = if args.command == Command::Create {
             let link = paths::link_from_cli(&args.operands[1])?;
             link == p.link
-                && paths::materialize_create_target(
-                    &link,
-                    &args.operands[0],
-                    args.relative,
-                )? == p.entry.target
+                && paths::materialize_create_target(&link, &args.operands[0], args.relative)?
+                    == p.entry.target
         } else {
             (args.command == Command::Fix && args.operands.is_empty())
                 || args
@@ -274,11 +271,7 @@ fn plan_create(r: &Registry, args: &Args) -> Result<Plan> {
     let link = paths::link_from_cli(&args.operands[1])?;
     let entry = Entry {
         link: paths::text(&link)?.to_owned(),
-        target: paths::materialize_create_target(
-            &link,
-            &args.operands[0],
-            args.relative,
-        )?,
+        target: paths::materialize_create_target(&link, &args.operands[0], args.relative)?,
     };
     let after = r.render(&r.with_entry(&entry)?);
     plan_link(r, args, entry, after)
