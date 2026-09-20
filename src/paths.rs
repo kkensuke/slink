@@ -189,9 +189,18 @@ pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> 
         return Ok(absolute);
     }
     let candidate = relative_target(link, &absolute)?;
-    if canonical_reference(link, &candidate)? != canonical_reference(link, &absolute)? {
+    let parent = link.parent().context("link has no parent")?;
+    if parent.is_dir()
+        && canonical_reference(link, &candidate)? != canonical_reference(link, &absolute)?
+    {
         bail!("cannot represent target safely as a relative symlink");
     }
+    // A missing parent cannot round-trip through reference_target(): its
+    // conservative normalization intentionally preserves '..' across missing
+    // components. relative_target() uses directory_location(), whose missing
+    // suffix is restricted to ordinary names, so the candidate becomes valid
+    // when create -p materializes those directories. Without -p, planning
+    // still rejects the missing parent before any symlink is created.
     Ok(candidate)
 }
 
