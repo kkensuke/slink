@@ -240,8 +240,7 @@ pub fn adopt_target(link: &Path, raw: &str) -> Result<String> {
 
 pub fn serialize_home_absolute(path: &Path, expression: bool) -> Result<String> {
     if expression {
-        let home = normalize(&home()?);
-        let path = normalize(path);
+        let home = home()?;
         if path == home {
             return Ok("${HOME}".to_owned());
         }
