@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink --config\n  slink list [-o <human|tsv>]\n  slink check [-o <human|tsv>] [link ...]\n  slink fix [-fnp] [link ...]\n  slink unregister [-n] <link ...>\n  slink remove [-n] <link ...>\n  slink adopt [-n] <link ...>\n  slink scan [-R] [-o <human|tsv>] [directory ...]\n\nOPTIONS:\n  -c, --config         Print the registry path without creating it\n  -f, --force          Replace different symlinks (create/fix only)\n  -p, --parents        Create missing link parent directories (create/fix)\n  -n, --dry-run        Display a mutation plan without writing anything\n  -R, --recursive      Scan subdirectories; never follow directory symlinks\n  -o, --format <name>  Output for list/check/scan: human (default) or tsv\n  -h, --help           Show help\n  -V, --version        Show version\n\nCLI paths start from the working directory; ~/ expands to your home.\nThe registry stores absolute link and target paths only.\nUse -- before literal operands, e.g. slink -- list ./list-link.\n";
+pub const HELP: &str = "slink — managed symbolic links\n\nUSAGE:\n  slink [OPTIONS] <target> <link>\n  slink --config\n  slink list [-o <human|tsv>]\n  slink check [-o <human|tsv>] [link ...]\n  slink fix [-fnp] [link ...]\n  slink unregister [-n] <link ...>\n  slink remove [-n] <link ...>\n  slink adopt [-n] <link ...>\n  slink scan [-R] [-o <human|tsv>] [directory ...]\n\nOPTIONS:\n  -c, --config         Print the registry path without creating it\n  -f, --force          Replace different symlinks or enforce target representation (create/fix)\n  -r, --relative       Store/create a relative target (create only)\n  -p, --parents        Create missing link parent directories (create/fix)\n  -n, --dry-run        Display a mutation plan without writing anything\n  -R, --recursive      Scan subdirectories; never follow directory symlinks\n  -o, --format <name>  Output for list/check/scan: human (default) or tsv\n  -h, --help           Show help\n  -V, --version        Show version\n\nCLI paths start from the working directory; ~/ expands to your home.\nThe registry stores absolute link paths and absolute or relative target paths.\nUse -- before literal operands, e.g. slink -- list ./list-link.\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -31,6 +31,7 @@ pub struct Args {
     pub dry_run: bool,
     pub parents: bool,
     pub force: bool,
+    pub relative: bool,
     pub recursive: bool,
 }
 
@@ -45,6 +46,7 @@ impl Args {
             dry_run: false,
             parents: false,
             force: false,
+            relative: false,
             recursive: false,
         };
         let mut info = None;
@@ -68,6 +70,7 @@ impl Args {
                         let name = match c {
                             'c' => "config",
                             'f' => "force",
+                            'r' => "relative",
                             'p' => "parents",
                             'n' => "dry-run",
                             'R' => "recursive",
@@ -101,6 +104,7 @@ impl Args {
                             info = Some(command);
                         }
                         "force" => a.force = true,
+                        "relative" => a.relative = true,
                         "parents" => a.parents = true,
                         "dry-run" => a.dry_run = true,
                         "recursive" => a.recursive = true,
@@ -141,7 +145,14 @@ impl Args {
             a.operands.push(s);
         }
         if let Some(command) = info {
-            if !first || format_set || a.dry_run || a.parents || a.force || a.recursive {
+            if !first
+                || format_set
+                || a.dry_run
+                || a.parents
+                || a.force
+                || a.relative
+                || a.recursive
+            {
                 bail!("--config, --help and --version take no other command, operands or options");
             }
             a.command = command;
@@ -165,6 +176,9 @@ impl Args {
         }
         if (a.parents || a.force) && !matches!(a.command, Command::Create | Command::Fix) {
             bail!("--parents and --force are only valid for create/fix");
+        }
+        if a.relative && a.command != Command::Create {
+            bail!("--relative is only valid for create");
         }
         if a.recursive && a.command != Command::Scan {
             bail!("--recursive is only valid for scan");
