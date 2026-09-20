@@ -131,8 +131,7 @@ pub fn canonical_target(target: &str) -> Result<String> {
 }
 
 pub fn is_reserved_home_target(target: &str) -> bool {
-    !Path::new(target).is_absolute()
-        && (target == "${HOME}" || target.starts_with("${HOME}/"))
+    !Path::new(target).is_absolute() && (target == "${HOME}" || target.starts_with("${HOME}/"))
 }
 
 pub fn registry_target(s: &str) -> Result<String> {
