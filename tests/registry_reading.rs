@@ -18,10 +18,7 @@ fn new_entries_align_keys_and_existing_entries_keep_their_formatting() {
         f.write_registry(&original);
 
         f.ok(&["adopt", "manual"]);
-        let updated = original.replace(
-            f.path("source").to_str().unwrap(),
-            f.path("other").to_str().unwrap(),
-        );
+        let updated = original.replace(f.path("source").to_str().unwrap(), "other");
         assert_eq!(f.registry(), updated);
 
         f.ok(&["source", "created"]);
@@ -29,13 +26,15 @@ fn new_entries_align_keys_and_existing_entries_keep_their_formatting() {
         f.ok(&["adopt", "adopted"]);
         let registry = f.registry();
         assert!(registry.starts_with(&updated));
-        for name in ["created", "adopted"] {
-            assert!(registry.contains(&format!(
-                "link   = {:?}{newline}target = {:?}{newline}",
-                f.path(name).to_str().unwrap(),
-                f.path("source").to_str().unwrap(),
-            )));
-        }
+        assert!(registry.contains(&format!(
+            "link   = {:?}{newline}target = {:?}{newline}",
+            f.path("created").to_str().unwrap(),
+            f.path("source").to_str().unwrap(),
+        )));
+        assert!(registry.contains(&format!(
+            "link   = {:?}{newline}target = \"source\"{newline}",
+            f.path("adopted").to_str().unwrap(),
+        )));
         if newline == "\r\n" {
             assert!(!registry.replace("\r\n", "").contains('\n'));
         }
@@ -64,8 +63,6 @@ fn empty_registries_support_listing_and_mutation() {
 fn list_shows_all_stored_strings_and_check_identifies_invalid_paths() {
     let f = Fixture::new();
     for (field, value) in [
-        ("target", "PhD"),
-        ("target", "~/source"),
         ("target", ""),
         ("target", "a\0b"),
         ("link", "relative"),
@@ -127,7 +124,7 @@ fn listing_invalid_paths_does_not_relax_mutation_validation() {
         .as_array_of_tables_mut()
         .unwrap()
         .get_mut(1)
-        .unwrap()["target"] = toml_edit::value("PhD");
+        .unwrap()["target"] = toml_edit::value("");
     f.write_registry(&doc.to_string());
     let before = f.registry();
     f.ok(&["list"]);
