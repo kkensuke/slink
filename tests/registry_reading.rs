@@ -171,7 +171,6 @@ fn unreadable_entry_structure_is_reported_without_a_partial_list() {
     }
 }
 
-
 #[test]
 fn registry_home_write_style_is_strict_and_defaults_to_concrete() {
     let f = Fixture::new();
