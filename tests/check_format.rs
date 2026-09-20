@@ -73,6 +73,7 @@ fn check_tsv_keeps_mismatch_details_on_the_same_record() {
 fn pending_paths_use_json_quotes_without_changing_recovery_data() {
     let f = Fixture::new();
     let target = "future\u{9b}/.";
+    let canonical = format!("{}/", f.path("future\u{9b}").display());
     f.crash(&[target, "home/link"], "linked");
     let pending_path = f.path("config/slink/links.toml.slink-pending");
     let before = fs::read(&pending_path).unwrap();
@@ -96,12 +97,12 @@ fn pending_paths_use_json_quotes_without_changing_recovery_data() {
     );
     assert_eq!(
         serde_json::from_str::<String>(target_text).unwrap(),
-        f.path(target).to_str().unwrap()
+        canonical
     );
     assert_eq!(fs::read(pending_path).unwrap(), before);
     assert_eq!(
         f.target("home/link").to_str().unwrap(),
-        f.path(target).to_str().unwrap()
+        canonical
     );
 }
 
