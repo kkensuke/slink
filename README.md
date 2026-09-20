@@ -98,7 +98,8 @@ slink scan [options] [directory ...]
 | What exists at the location | Normal creation | Creation with `-f` |
 | --- | --- | --- |
 | Nothing | Create the symlink; add or update its registration | Same |
-| A symlink with a matching target path | Keep the symlink; add or update its registration | Same |
+| A symlink with the same target meaning and the same target text | Keep the symlink; add or update its registration | Same |
+| A symlink with the same target meaning but different target text | Keep the symlink; add or update its registration | Replace it with the requested canonical representation |
 | A symlink with a different target path | Report a conflict | Replace the symlink; add or update its registration |
 | A regular file, directory, or other object | Report a conflict and leave it untouched | Same |
 
@@ -106,17 +107,25 @@ slink scan [options] [directory ...]
 
 | Input or stored value | Rule |
 | --- | --- |
-| Paths passed to commands | Absolute paths, paths relative to the working directory, and leading `~/` are accepted and converted to absolute paths |
-| Registry `link` / `target` | The symlink's location / target path. Both must be absolute paths, including when edited by hand |
-| Targets of newly created or restored symlinks | Set using absolute paths |
+| Paths passed to commands | Absolute paths, paths relative to the working directory, and leading `~/` are accepted. Both operands keep the same working-directory interpretation |
+| Registry `link` / `target` | `link` is always absolute. `target` is canonical target text and may be absolute or relative |
+| Targets of newly created symlinks | Absolute by default; use `-r` / `--relative` to store and create an equivalent relative target |
+| Targets of restored symlinks | Recreated from the registered target text exactly |
 
 You can also pass quoted `"~/…"` paths to commands. The registry does not expand `~`, variables, or shell expressions.
 
-### Register an existing symlink that uses a relative path with `adopt`
+### Create or adopt relative symlinks
 
-`adopt` converts a relative path read from an existing symlink to an absolute path, using the directory containing the symlink as its base, and registers it.
+Use `-r` / `--relative` during creation to keep the CLI operands unchanged while storing the target relative to the link location:
 
-For example, if `/Users/you/bin/python3` points to `python`, the registry stores `/Users/you/bin/python`.
+```sh
+cd /Users/you/project
+slink -r config links/config
+```
+
+This creates `links/config -> ../config` and stores `target = "../config"`.
+
+`adopt` also preserves the representation of an existing relative symlink, after removing only meaningless spelling such as interior `./` or repeated separators. For example, if `/Users/you/bin/python3` points to `python`, the registry stores `target = "python"`.
 
 ```sh
 slink adopt ~/bin/python3
@@ -124,7 +133,7 @@ slink check ~/bin/python3
 slink fix ~/bin/python3
 ```
 
-`check` and `fix` also convert the target path to an absolute path before comparing it with the registration. A matching symlink is left untouched. If the symlink has been deleted, `fix` recreates it using an absolute path for its target.
+Target comparison is semantic and link-aware, so equivalent absolute and relative spellings match. A matching symlink is left untouched by default. If it is missing, `fix` recreates the registered representation; `fix -f` also enforces that representation on an existing equivalent symlink.
 
 ## Registry file
 
@@ -138,7 +147,7 @@ To open the registry for viewing or editing:
 open "$(slink --config)"
 ```
 
-Write one `[[link]]` block per registration, containing only the string fields `link` and `target`. Both must be absolute paths. An empty file represents no registrations.
+Write one `[[link]]` block per registration, containing only the string fields `link` and `target`. `link` must be absolute; `target` may be absolute or relative and is interpreted from the link's containing directory. An empty file represents no registrations.
 
 `list` displays registrations in file order, including entries with invalid paths or duplicate registrations. Use `check` to validate them. `check`, `scan`, and commands that make changes validate paths and check for duplicates across the entire registry. Invalid TOML syntax or entry structure prevents even `list` from reading the file.
 
@@ -158,7 +167,8 @@ If the registry file is itself a symlink, slink updates the file it points to.
 | Short | Long | Purpose |
 | --- | --- | --- |
 | `-c` | `--config` | Print the registry file's location |
-| `-f` | `--force` | Create/`fix`: replace existing symlinks with different targets |
+| `-f` | `--force` | Create/`fix`: replace different symlinks or enforce the requested/registered target representation |
+| `-r` | `--relative` | Create: store and create a relative target representation |
 | `-p` | `--parents` | Create/`fix`: create missing parent directories for symlinks |
 | `-n` | `--dry-run` | Create/`fix`/`unregister`/`remove`/`adopt`: preview changes without writing |
 | `-R` | `--recursive` | `scan`: include subdirectories |
@@ -247,7 +257,7 @@ Output has a header and one row per symlink.
 | `MANAGEMENT` | Whether the symlink is registered |
 | `LINK` | The symlink's location |
 | `LINK_STATE` | Whether the symlink matches its registration |
-| `TARGET` | The registered target: stored text in `list`, validated and normalized absolute path in `check` and registered `scan` rows |
+| `TARGET` | The registered target: stored text in `list`, validated and display-normalized registered target in `check` and registered `scan` rows |
 | `TARGET_STATE` | Whether the registered target is reachable |
 | `ACTUAL_TARGET` | The target path read from the actual symlink; it may be relative |
 | `ACTUAL_TARGET_STATE` | Whether the actual symlink's target is reachable |
