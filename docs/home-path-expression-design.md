@@ -726,16 +726,6 @@ Rejected because it adds no capability beyond `${HOME}` while introducing less e
 
 Rejected as unnecessary syntax surface.
 
-### Use `${SLINK_HOME}`
-
-This would make the token more obviously slink-specific and would make accidental literal collisions even less likely.
-
-It is not chosen because it is longer, less immediately readable as "the user's home directory", and looks like a reference to an environment variable named `SLINK_HOME` even though the proposed feature reads the normal HOME directory.
-
-It also does not remove the structural collision: a literal relative target named `${SLINK_HOME}/foo` would still need the same persistence rule. It only makes that collision rarer.
-
-`${HOME}` therefore keeps the user-facing syntax familiar while the reserved persistence invariant handles the rare ambiguity explicitly.
-
 ### Add a `./` or backslash escape
 
 Rejected because canonical target normalization would need context-sensitive exceptions, complicating a representation model that is otherwise deterministic.
