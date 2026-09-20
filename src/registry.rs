@@ -101,10 +101,13 @@ impl Registry {
                         bail!("unknown format field {k:?}");
                     }
                 }
-                match table.get("home").and_then(|v| v.as_str()) {
-                    None | Some("concrete") => HomeWriteStyle::Concrete,
-                    Some("expression") => HomeWriteStyle::Expression,
-                    Some(_) => bail!("format.home must be \"concrete\" or \"expression\""),
+                match table.get("home") {
+                    None => HomeWriteStyle::Concrete,
+                    Some(value) => match value.as_str().context("format.home must be a string")? {
+                        "concrete" => HomeWriteStyle::Concrete,
+                        "expression" => HomeWriteStyle::Expression,
+                        _ => bail!("format.home must be \"concrete\" or \"expression\""),
+                    },
                 }
             }
         };
