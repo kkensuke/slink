@@ -100,10 +100,7 @@ fn pending_paths_use_json_quotes_without_changing_recovery_data() {
         canonical
     );
     assert_eq!(fs::read(pending_path).unwrap(), before);
-    assert_eq!(
-        f.target("home/link").to_str().unwrap(),
-        canonical
-    );
+    assert_eq!(f.target("home/link").to_str().unwrap(), canonical);
 }
 
 #[test]
