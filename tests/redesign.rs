@@ -270,3 +270,104 @@ fn unregister_does_not_require_an_inspectable_link_parent() {
     assert_eq!(f.entries(), 0);
     assert!(!f.path("missing").exists());
 }
+
+
+#[test]
+fn registry_home_expressions_validate_to_concrete_paths() {
+    let f = Fixture::new();
+    fs::write(f.path("home/source"), "ok").unwrap();
+    f.write_registry(
+        "[[link]]\nlink = \"${HOME}/link\"\ntarget = \"${HOME}/source\"\n",
+    );
+
+    f.ok(&["fix"]);
+    assert_eq!(f.target("home/link"), f.path("home/source"));
+    assert!(f.registry().contains("link = \"${HOME}/link\""));
+    assert!(f.registry().contains("target = \"${HOME}/source\""));
+}
+
+#[test]
+fn home_expression_write_style_applies_only_to_written_entries() {
+    let f = Fixture::new();
+    fs::write(f.path("home/source"), "ok").unwrap();
+    let old_link = f.path("old-link");
+    let old_target = f.path("old-target");
+    f.write_registry(&format!(
+        "[format]\nhome = \"expression\"\n\n[[link]]\nlink = {:?}\ntarget = {:?}\n",
+        old_link.to_str().unwrap(),
+        old_target.to_str().unwrap(),
+    ));
+
+    f.ok(&["~/source", "~/new-link"]);
+    let registry = f.registry();
+
+    assert!(registry.contains(&format!("link = {:?}", old_link.to_str().unwrap())));
+    assert!(registry.contains(&format!("target = {:?}", old_target.to_str().unwrap())));
+    assert!(registry.contains("link   = \"${HOME}/new-link\""));
+    assert!(registry.contains("target = \"${HOME}/source\""));
+    assert_eq!(f.target("home/new-link"), f.path("home/source"));
+}
+
+#[test]
+fn home_expression_write_style_never_changes_relative_target_style() {
+    let f = Fixture::new();
+    fs::create_dir(f.path("home/bin")).unwrap();
+    fs::write(f.path("home/source"), "ok").unwrap();
+    f.write_registry("[format]\nhome = \"expression\"\n");
+
+    f.ok(&["-r", "~/source", "~/bin/link"]);
+
+    let registry = f.registry();
+    assert!(registry.contains("link   = \"${HOME}/bin/link\""));
+    assert!(registry.contains("target = \"../source\""));
+    assert_eq!(f.target("home/bin/link"), Path::new("../source"));
+}
+
+#[test]
+fn reserved_home_target_spellings_are_rejected_for_registry_and_relative_create() {
+    let f = Fixture::new();
+    let reserved = "./${HOME}/foo";
+    f.write_registry(&format!(
+        "[[link]]\nlink = {:?}\ntarget = {:?}\n",
+        f.path("link").to_str().unwrap(),
+        reserved,
+    ));
+    let check = f.run(&["check"]);
+    assert_eq!(check.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&check.stderr).contains("reserved registry HOME syntax"));
+
+    fs::remove_file(f.registry_path()).unwrap();
+    let create = f.run(&["-r", "${HOME}/foo", "link"]);
+    assert_eq!(create.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&create.stderr).contains("reserved registry HOME syntax"));
+    assert!(!f.path("link").exists());
+}
+
+#[test]
+fn adopt_reencodes_reserved_home_target_without_rewriting_existing_symlink() {
+    let f = Fixture::new();
+    symlink("${HOME}/foo", f.path("link")).unwrap();
+
+    f.ok(&["adopt", "link"]);
+    assert_eq!(f.target("link"), Path::new("${HOME}/foo"));
+
+    let safe = f.path("${HOME}/foo");
+    assert!(f.registry().contains(&format!("target = {:?}", safe.to_str().unwrap())));
+
+    fs::remove_file(f.path("link")).unwrap();
+    f.ok(&["fix", "link"]);
+    assert_eq!(f.target("link"), safe);
+}
+
+#[test]
+fn expression_style_can_serialize_safe_adopted_absolute_target_under_home() {
+    let f = Fixture::new();
+    symlink("${HOME}/foo", f.path("home/link")).unwrap();
+    f.write_registry("[format]\nhome = \"expression\"\n");
+
+    f.ok(&["adopt", "~/link"]);
+    assert_eq!(f.target("home/link"), Path::new("${HOME}/foo"));
+    assert!(f
+        .registry()
+        .contains("target = \"${HOME}/${HOME}/foo\""));
+}
