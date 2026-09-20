@@ -193,15 +193,16 @@ fn readlink_tilde_is_literal_and_target_directory_suffixes_survive() {
     f.ok(&["adopt", "existing"]);
     assert!(f.registry().contains("target = \"~/source\""));
     fs::write(f.path("file"), "data").unwrap();
+    let canonical = format!("{}/", f.path("file").display());
     for (target, link) in [("file/", "slash"), ("file/.", "dot")] {
         let created = String::from_utf8(f.ok(&[target, link]).stdout).unwrap();
-        assert!(created.contains(&format!("  → {:?}\n", f.path(target))));
-        assert_eq!(f.target(link).as_os_str(), f.path(target).as_os_str());
+        assert!(created.contains(&format!("  → {canonical:?}\n")));
+        assert_eq!(f.target(link).to_str().unwrap(), canonical);
         let checked = f.run(&["check", link]);
         assert_eq!(checked.status.code(), Some(1));
         assert!(String::from_utf8(checked.stdout)
             .unwrap()
-            .contains(&format!("  target: {:?}\n", f.path(target))));
+            .contains(&format!("  target: {canonical:?}\n")));
     }
 }
 
