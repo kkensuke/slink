@@ -206,7 +206,8 @@ fn check_and_scan_format_paths_but_keep_actual_target_strings_in_tsv() {
         assert_eq!(human.status.code(), Some(status));
         let text = String::from_utf8(human.stdout).unwrap();
         assert!(text.contains(&format!("! {:?} — target differs", f.path("home/managed"))));
-        assert!(text.contains(&format!("expected: {:?}", f.path("expected/."))));
+        let expected = format!("{}/", f.path("expected").display());
+        assert!(text.contains(&format!("expected: {expected:?}")));
         assert!(text.contains("actual:   \"../data/target/.\""));
         assert!(!text.contains("~/"));
         if command == "scan" {
@@ -233,14 +234,14 @@ fn check_and_scan_format_paths_but_keep_actual_target_strings_in_tsv() {
                 assert_eq!(&cells[2..5], &["", "", ""]);
             } else {
                 let (state, target) = if link.ends_with("/matching") {
-                    ("MATCH", "data/target/.")
+                    ("MATCH", format!("{}/", f.path("data/target").display()))
                 } else {
-                    ("MISMATCH", "expected/.")
+                    ("MISMATCH", format!("{}/", f.path("expected").display()))
                 };
                 assert_eq!(cells[1 + offset], state);
                 assert_eq!(
                     serde_json::from_str::<String>(cells[2 + offset]).unwrap(),
-                    f.path(target).to_str().unwrap()
+                    target
                 );
             }
         }
