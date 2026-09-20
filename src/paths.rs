@@ -312,7 +312,6 @@ pub fn target_path(link: &Path, target: &str) -> PathBuf {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::canonical_target;
