@@ -70,6 +70,18 @@ or storing both an absolute reference and a materialized target.
 
 The target text already contains the filesystem representation that `fix` must restore.
 
+## Design invariants
+
+The implementation should preserve these invariants:
+
+1. `link` identifies where the managed symlink lives and remains absolute.
+2. `target` is the exact text slink intends to write with `symlink(2)`.
+3. Any code that needs the target's path meaning derives it from `(link, target)`; it must not assume that `target` is absolute.
+4. Steady-state correctness uses semantic reference comparison.
+5. Transaction recovery uses exact target-text comparison when deciding whether filesystem state belongs to the pending operation.
+
+These rules keep representation persistence separate from reference comparison without adding another persisted policy.
+
 ## Why store target text directly?
 
 The alternative model is to store an absolute semantic reference and separately remember whether the symlink should be materialized as absolute or relative.
