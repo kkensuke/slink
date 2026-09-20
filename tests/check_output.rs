@@ -207,9 +207,6 @@ fn target_output_preserves_spaces_and_escapes_all_terminal_controls() {
                 })
                 .unwrap()
         };
-        assert_eq!(
-            serde_json::from_str::<String>(value).unwrap(),
-            f.path(target).to_str().unwrap()
-        );
+        assert_eq!(serde_json::from_str::<String>(value).unwrap(), target);
     }
 }

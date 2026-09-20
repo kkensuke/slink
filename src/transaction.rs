@@ -71,7 +71,7 @@ pub fn load(r: &Registry) -> Result<Option<Pending>> {
     f.read_to_end(&mut data)?;
     let p: Pending = serde_json::from_slice(&data)
         .context("invalid pending operation; preserve this file for recovery")?;
-    paths::registry_path(&p.entry.target, "pending target")?;
+    paths::validate_target(&p.entry.target)?;
     if p.version != 2 || !p.link.is_absolute() || r.link(&p.entry)? != p.link {
         bail!("invalid pending operation");
     }
