@@ -1,6 +1,6 @@
 [package]
 name = "slink"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 description = "A symbolic-link management CLI for macOS"
 license = "MIT"

@@ -53,7 +53,7 @@ Update `Cargo.toml`:
 
 ```toml
 [package]
-version = "0.2.5"
+version = "0.3.0"
 ```
 
 Commit the version change and merge it to `main`. The release workflow rejects a tag whose version does not match `Cargo.toml`, or whose commit is not contained in `main`.
@@ -67,7 +67,7 @@ git switch main
 git pull --ff-only
 git status --short
 
-VERSION=0.2.5
+VERSION=0.3.0
 git tag -s "v${VERSION}" -m "slink ${VERSION}"
 git tag -v "v${VERSION}"
 git push origin "v${VERSION}"
