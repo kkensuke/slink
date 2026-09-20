@@ -17,12 +17,19 @@ pub struct Entry {
     pub target: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HomeWriteStyle {
+    Concrete,
+    Expression,
+}
+
 pub struct Registry {
     pub requested: PathBuf,
     pub path: PathBuf,
     pub original: Option<Vec<u8>>,
     pub doc: DocumentMut,
     pub entries: Vec<Entry>,
+    home_write_style: HomeWriteStyle,
 }
 
 impl Registry {
@@ -81,10 +88,29 @@ impl Registry {
             None => DocumentMut::new(),
         };
         for (k, _) in doc.iter() {
-            if k != "link" {
+            if k != "link" && k != "format" {
                 bail!("unknown registry field {k:?}");
             }
         }
+        let home_write_style = match doc.get("format") {
+            None => HomeWriteStyle::Concrete,
+            Some(item) => {
+                let table = item.as_table().context("format must be a table")?;
+                for (k, _) in table.iter() {
+                    if k != "home" {
+                        bail!("unknown format field {k:?}");
+                    }
+                }
+                match table.get("home") {
+                    None => HomeWriteStyle::Concrete,
+                    Some(value) => match value.as_str().context("format.home must be a string")? {
+                        "concrete" => HomeWriteStyle::Concrete,
+                        "expression" => HomeWriteStyle::Expression,
+                        _ => bail!("format.home must be \"concrete\" or \"expression\""),
+                    },
+                }
+            }
+        };
         let mut entries = vec![];
         if let Some(link_tables) = doc.get("link") {
             for (index, table) in link_tables
@@ -120,6 +146,7 @@ impl Registry {
             original,
             doc,
             entries,
+            home_write_style,
         })
     }
 
@@ -131,7 +158,7 @@ impl Registry {
                 paths::validate_link(&entry.link)?;
                 let link = paths::registry_link_path(&entry.link)?;
                 entry.link = paths::text(&link)?.to_owned();
-                entry.target = paths::canonical_target(&entry.target)?;
+                entry.target = paths::registry_target(&entry.target)?;
                 if !seen_paths.insert(link.clone()) {
                     bail!("duplicate link: {:?}", entry.link);
                 }
@@ -214,7 +241,20 @@ impl Registry {
         }
         Ok(())
     }
+    fn serialized_entry(&self, entry: &Entry) -> Result<Entry> {
+        let expression = self.home_write_style == HomeWriteStyle::Expression;
+        let link_path = Path::new(&entry.link);
+        let link = paths::serialize_home_absolute(link_path, expression)?;
+        let target = if Path::new(&entry.target).is_absolute() {
+            paths::serialize_home_absolute(Path::new(&entry.target), expression)?
+        } else {
+            entry.target.clone()
+        };
+        Ok(Entry { link, target })
+    }
+
     pub fn with_entry(&self, entry: &Entry) -> Result<DocumentMut> {
+        let serialized = self.serialized_entry(entry)?;
         if let Some(index) = self.find(Path::new(&entry.link))? {
             let mut doc = self.doc.clone();
             let table = doc["link"]
@@ -222,7 +262,7 @@ impl Registry {
                 .expect("validated registry")
                 .get_mut(index)
                 .expect("entry exists");
-            for (field, text) in [("link", &entry.link), ("target", &entry.target)] {
+            for (field, text) in [("link", &serialized.link), ("target", &serialized.target)] {
                 if table[field].as_str() != Some(text) {
                     let decor = table[field].as_value().expect("string").decor().clone();
                     table[field] = value(text.clone());
@@ -231,10 +271,10 @@ impl Registry {
             }
             return Ok(doc);
         }
-        Ok(self.with_added(entry))
+        self.with_added(&serialized)
     }
 
-    fn with_added(&self, entry: &Entry) -> DocumentMut {
+    fn with_added(&self, entry: &Entry) -> Result<DocumentMut> {
         let mut doc = self.doc.clone();
         if doc.get("link").is_none() {
             doc["link"] = Item::ArrayOfTables(ArrayOfTables::new());
@@ -250,7 +290,7 @@ impl Registry {
             .as_array_of_tables_mut()
             .expect("validated registry")
             .push(t);
-        doc
+        Ok(doc)
     }
     pub fn without(&self, index: usize) -> DocumentMut {
         let mut doc = self.doc.clone();

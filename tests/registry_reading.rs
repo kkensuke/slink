@@ -170,3 +170,26 @@ fn unreadable_entry_structure_is_reported_without_a_partial_list() {
         }
     }
 }
+
+#[test]
+fn registry_home_write_style_is_strict_and_defaults_to_concrete() {
+    let f = Fixture::new();
+    f.write("home/source", "ok");
+
+    f.write_registry("");
+    f.ok(&["~/source", "~/concrete-link"]);
+    let concrete = f.registry();
+    assert!(concrete.contains(f.path("home/concrete-link").to_str().unwrap()));
+    assert!(concrete.contains(f.path("home/source").to_str().unwrap()));
+    assert!(!concrete.contains("${HOME}"));
+
+    for invalid in [
+        "[format]\nhome = \"other\"\n",
+        "[format]\nhome = 1\n",
+        "[format]\nextra = true\n",
+    ] {
+        f.write_registry(invalid);
+        let out = f.run(&["check"]);
+        assert_eq!(out.status.code(), Some(2), "{invalid:?}");
+    }
+}

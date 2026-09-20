@@ -112,7 +112,7 @@ slink scan [options] [directory ...]
 | Targets of newly created symlinks | Absolute by default; use `-r` / `--relative` to store and create an equivalent relative target |
 | Targets of restored symlinks | Recreated from the registered target text exactly |
 
-You can also pass quoted `"~/…"` paths to commands. The registry does not expand `~`, variables, or shell expressions.
+You can also pass quoted `"~/…"` paths to commands. In the registry, only a leading `${HOME}` or `${HOME}/...` is a HOME expression; `~`, `$HOME`, other variables, and embedded `${HOME}` remain literal pathname text.
 
 ### Create or adopt relative symlinks
 
@@ -147,9 +147,18 @@ To open the registry for viewing or editing:
 open "$(slink --config)"
 ```
 
-Write one `[[link]]` block per registration, containing only the string fields `link` and `target`. `link` must be absolute; `target` may be absolute or relative and is interpreted from the link's containing directory. An empty file represents no registrations.
+Write one `[[link]]` block per registration, containing the string fields `link` and `target`. `link` must resolve to an absolute path; `target` may be absolute or relative and is interpreted from the link's containing directory. A leading `${HOME}` or `${HOME}/...` is expanded while the registry is validated. An empty file represents no registrations.
 
-`list` displays registrations in file order, including entries with invalid paths or duplicate registrations. Use `check` to validate them. `check`, `scan`, and commands that make changes validate paths and check for duplicates across the entire registry. Invalid TOML syntax or entry structure prevents even `list` from reading the file.
+By default, slink writes concrete absolute HOME paths back to the registry. A registry can opt into HOME-expression spelling for newly created or updated entries:
+
+```toml
+[format]
+home = "expression"
+```
+
+The accepted values are `"concrete"` (default) and `"expression"`. Expression mode shortens only absolute `link` or `target` values that are HOME itself or descendants of HOME. Relative targets remain relative. Existing untouched entries keep their original source spelling; changing this setting does not reformat the whole registry.
+
+`list` displays registrations in file order, including entries with invalid paths or duplicate registrations. Use `check` to validate them. `check`, `scan`, and commands that make changes validate paths and check for duplicates across the entire registry. Invalid TOML syntax, registry format settings, or entry structure prevents even `list` from reading the file.
 
 | Hand edit | Effect |
 | --- | --- |

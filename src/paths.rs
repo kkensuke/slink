@@ -70,12 +70,23 @@ pub fn from_cli(s: &str) -> Result<PathBuf> {
     absolute(&path)
 }
 
+fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
+    if s == "${HOME}" {
+        Ok(Some(home()?))
+    } else if let Some(rest) = s.strip_prefix("${HOME}/") {
+        Ok(Some(home()?.join(rest)))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn registry_link_path(s: &str) -> Result<PathBuf> {
     validate_target(s)?;
-    if !Path::new(s).is_absolute() {
+    let path = expand_registry_home(s)?.unwrap_or_else(|| PathBuf::from(s));
+    if !path.is_absolute() {
         bail!("registry link must be an absolute path: {s:?}");
     }
-    Ok(normalize(Path::new(s)))
+    Ok(normalize(&path))
 }
 
 // Keep one deterministic spelling for syntax that does not change target
@@ -117,6 +128,21 @@ pub fn canonical_target(target: &str) -> Result<String> {
     }
 
     Ok(out)
+}
+
+fn is_reserved_home_target(target: &str) -> bool {
+    !Path::new(target).is_absolute() && (target == "${HOME}" || target.starts_with("${HOME}/"))
+}
+
+pub fn registry_target(s: &str) -> Result<String> {
+    if let Some(expanded) = expand_registry_home(s)? {
+        return canonical_target(text(&expanded)?);
+    }
+    let target = canonical_target(s)?;
+    if is_reserved_home_target(&target) {
+        bail!("relative target {target:?} conflicts with reserved registry HOME syntax");
+    }
+    Ok(target)
 }
 
 // readlink() is OS data: a literal '~' is not a home-directory abbreviation.
@@ -182,6 +208,11 @@ pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> 
         return Ok(absolute);
     }
     let candidate = relative_target(link, &absolute)?;
+    if is_reserved_home_target(&candidate) {
+        bail!(
+            "cannot represent target relatively: relative target {candidate:?} conflicts with reserved registry HOME syntax; omit --relative to use an absolute target"
+        );
+    }
     let parent = link.parent().context("link has no parent")?;
     if parent.is_dir()
         && canonical_reference(link, &candidate)? != canonical_reference(link, &absolute)?
@@ -195,6 +226,31 @@ pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> 
     // when create -p materializes those directories. Without -p, planning
     // still rejects the missing parent before any symlink is created.
     Ok(candidate)
+}
+
+pub fn adopt_target(link: &Path, raw: &str) -> Result<String> {
+    let target = canonical_target(raw)?;
+    if is_reserved_home_target(&target) {
+        canonical_reference(link, &target)
+    } else {
+        Ok(target)
+    }
+}
+
+pub fn serialize_home_absolute(path: &Path, expression: bool) -> Result<String> {
+    if expression {
+        let home = home()?;
+        if path == home {
+            return Ok("${HOME}".to_owned());
+        }
+        if let Ok(rest) = path.strip_prefix(&home) {
+            let rest = text(rest)?;
+            if !rest.is_empty() {
+                return Ok(format!("${{HOME}}/{rest}"));
+            }
+        }
+    }
+    Ok(text(path)?.to_owned())
 }
 
 pub fn reject_self_reference(link: &Path, target: &str) -> Result<()> {
