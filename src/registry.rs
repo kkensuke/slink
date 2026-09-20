@@ -131,8 +131,7 @@ impl Registry {
                 paths::validate_link(&entry.link)?;
                 let link = paths::registry_path(&entry.link, "link")?;
                 entry.link = paths::text(&link)?.to_owned();
-                entry.target =
-                    paths::text(&paths::registry_path(&entry.target, "target")?)?.to_owned();
+                entry.target = paths::canonical_target(&entry.target)?;
                 if !seen_paths.insert(link.clone()) {
                     bail!("duplicate link: {:?}", entry.link);
                 }
