@@ -283,7 +283,7 @@ fn plan_adopt(r: &Registry, link: PathBuf) -> Result<Plan> {
     let old = inspect::snapshot(&link)?.context("no symlink to adopt")?;
     let entry = Entry {
         link: paths::text(&link)?.to_owned(),
-        target: paths::canonical_target(&old.target)?,
+        target: paths::adopt_target(&link, &old.target)?,
     };
     let after = r.render(&r.with_entry(&entry)?);
     Ok(Plan {
