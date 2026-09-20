@@ -53,36 +53,32 @@ fn command_options_are_validated_and_output_formats_can_be_selected() {
 }
 
 #[test]
-fn registry_rejects_relative_and_tilde_paths_in_both_fields() {
+fn registry_requires_absolute_links_but_allows_relative_targets() {
     let f = Fixture::new();
-    for (field, value) in [
-        ("link", "relative"),
-        ("link", "~/link"),
-        ("target", "../source"),
-        ("target", "~/source"),
-    ] {
-        let link = if field == "link" {
-            value.to_string()
-        } else {
-            f.path("link").to_str().unwrap().to_string()
-        };
-        let target = if field == "target" {
-            value.to_string()
-        } else {
-            f.path("source").to_str().unwrap().to_string()
-        };
-        f.write_registry(&format!("[[link]]\nlink = {link:?}\ntarget = {target:?}\n"));
+    for value in ["relative", "~/link"] {
+        f.write_registry(&format!(
+            "[[link]]\nlink = {value:?}\ntarget = {:?}\n",
+            f.path("source")
+        ));
         let before = f.registry();
         let output = f.run(&["fix"]);
         assert_eq!(output.status.code(), Some(2));
         assert!(String::from_utf8_lossy(&output.stderr)
-            .contains(&format!("registry {field} must be an absolute path")));
+            .contains("registry link must be an absolute path"));
         assert_eq!(before, f.registry());
     }
+
+    f.write("source", "data");
+    symlink("../source", f.path("home/link")).unwrap();
+    f.write_registry(&format!(
+        "[[link]]\nlink = {:?}\ntarget = '../source'\n",
+        f.path("home/link")
+    ));
+    f.ok(&["check"]);
 }
 
 #[test]
-fn registry_path_errors_do_not_guess_from_the_working_directory() {
+fn relative_registry_targets_do_not_depend_on_the_working_directory() {
     let f = Fixture::new();
     f.write_registry(&format!(
         "[[link]]\nlink = {:?}\ntarget = 'PhD'\n",
@@ -94,13 +90,11 @@ fn registry_path_errors_do_not_guess_from_the_working_directory() {
         .current_dir(f.path("home"))
         .output()
         .unwrap();
-    assert_eq!(first.status.code(), Some(2));
-    assert_eq!(second.status.code(), Some(2));
-    assert_eq!(first.stderr, second.stderr);
-    let error = String::from_utf8(first.stderr).unwrap();
-    assert!(error.contains("registry target must be an absolute path: \"PhD\""));
-    assert!(!error.contains("working directory"));
-    assert!(!error.contains(f.path("PhD").to_str().unwrap()));
+    assert_eq!(first.status.code(), Some(1));
+    assert_eq!(second.status.code(), Some(1));
+    assert_eq!(first.stdout, second.stdout);
+    assert!(first.stderr.is_empty());
+    assert!(second.stderr.is_empty());
 }
 
 #[test]
@@ -162,7 +156,7 @@ fn references_preserve_symlink_chains_and_meaningful_parent_components() {
 }
 
 #[test]
-fn adopt_preserves_relative_links_updates_registry_and_fix_restores_absolute() {
+fn adopt_preserves_relative_links_updates_registry_and_fix_restores_relative() {
     let f = Fixture::new();
     fs::create_dir_all(f.path("tree/bin")).unwrap();
     fs::write(f.path("tree/python"), "python").unwrap();
@@ -176,7 +170,7 @@ fn adopt_preserves_relative_links_updates_registry_and_fix_restores_absolute() {
     assert_eq!(fields[1], "MATCH");
     assert_eq!(
         serde_json::from_str::<String>(fields[2]).unwrap(),
-        f.path("tree/python").to_str().unwrap()
+        "../python"
     );
     assert_eq!(
         serde_json::from_str::<String>(fields[4]).unwrap(),
@@ -184,13 +178,11 @@ fn adopt_preserves_relative_links_updates_registry_and_fix_restores_absolute() {
     );
     fs::remove_file(f.path("alias/python3")).unwrap();
     f.ok(&["fix"]);
-    assert_eq!(f.target("alias/python3"), f.path("tree/python"));
+    assert_eq!(f.target("alias/python3"), Path::new("../python"));
     fs::remove_file(f.path("alias/python3")).unwrap();
     symlink("different", f.path("alias/python3")).unwrap();
     f.ok(&["adopt", "alias/python3"]);
-    assert!(f
-        .registry()
-        .contains(f.path("tree/bin/different").to_str().unwrap()));
+    assert!(f.registry().contains("target = \"different\""));
     f.ok(&["remove", "alias/python3"]);
 }
 
@@ -199,7 +191,7 @@ fn readlink_tilde_is_literal_and_target_directory_suffixes_survive() {
     let f = Fixture::new();
     symlink("~/source", f.path("existing")).unwrap();
     f.ok(&["adopt", "existing"]);
-    assert!(f.registry().contains(f.path("~/source").to_str().unwrap()));
+    assert!(f.registry().contains("target = \"~/source\""));
     fs::write(f.path("file"), "data").unwrap();
     for (target, link) in [("file/", "slash"), ("file/.", "dot")] {
         let created = String::from_utf8(f.ok(&[target, link]).stdout).unwrap();
