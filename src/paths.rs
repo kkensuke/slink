@@ -70,7 +70,7 @@ pub fn from_cli(s: &str) -> Result<PathBuf> {
     absolute(&path)
 }
 
-pub fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
+fn expand_registry_home(s: &str) -> Result<Option<PathBuf>> {
     if s == "${HOME}" {
         Ok(Some(home()?))
     } else if let Some(rest) = s.strip_prefix("${HOME}/") {
@@ -130,7 +130,7 @@ pub fn canonical_target(target: &str) -> Result<String> {
     Ok(out)
 }
 
-pub fn is_reserved_home_target(target: &str) -> bool {
+fn is_reserved_home_target(target: &str) -> bool {
     !Path::new(target).is_absolute() && (target == "${HOME}" || target.starts_with("${HOME}/"))
 }
 
@@ -147,7 +147,7 @@ pub fn registry_target(s: &str) -> Result<String> {
 
 // readlink() is OS data: a literal '~' is not a home-directory abbreviation.
 // Resolve only the link's containing directory, never the target symlinks.
-pub fn canonical_reference(link: &Path, target: &str) -> Result<String> {
+fn canonical_reference(link: &Path, target: &str) -> Result<String> {
     let target = canonical_target(target)?;
     let path = if Path::new(&target).is_absolute() {
         PathBuf::from(&target)
