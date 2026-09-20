@@ -5,11 +5,7 @@ use support::Fixture;
 
 fn registered_target(f: &Fixture) -> String {
     let doc = f.registry().parse::<toml_edit::DocumentMut>().unwrap();
-    doc["link"]
-        .as_array_of_tables()
-        .unwrap()
-        .get(0)
-        .unwrap()["target"]
+    doc["link"].as_array_of_tables().unwrap().get(0).unwrap()["target"]
         .as_str()
         .unwrap()
         .to_owned()
