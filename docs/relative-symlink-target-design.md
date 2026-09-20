@@ -2,7 +2,7 @@
 
 ## Status
 
-Design proposal. Implementation is intentionally out of scope for this pull request.
+Implemented in this pull request. The design below describes the behavior covered by the accompanying code and tests.
 
 ## Goal
 
@@ -540,7 +540,7 @@ Code needing target meaning should use the existing link-aware target interpreta
 
 ## Implementation surface
 
-The intended change remains narrow:
+The implementation remains narrow:
 
 | Area | Change |
 | --- | --- |
