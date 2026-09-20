@@ -81,14 +81,14 @@ foo/.          -> foo/
 foo/./         -> foo/
 ```
 
-The canonicalization is deliberately narrow.
+The canonicalization is deliberately narrow and deterministic.
 
-It may remove syntactic noise such as:
+For nontrivial targets, the canonicalizer must:
 
-- interior `.` components;
-- redundant ordinary separators;
-- a redundant leading `./` on a nontrivial relative path;
-- trailing `/.`, normalized to trailing `/`.
+- remove interior `.` components;
+- collapse redundant ordinary separators;
+- remove a redundant leading `./` from a relative target;
+- normalize trailing `/.` to trailing `/`.
 
 It must preserve path features that may affect meaning:
 
@@ -100,9 +100,9 @@ It must preserve path features that may affect meaning:
 
 Standalone values such as `.` must remain representable; canonicalization must never produce an empty target.
 
-Canonicalization is syntactic. It must not resolve the target, follow target symlinks, or collapse `..` merely because a lexical simplification appears possible.
+Canonicalization is syntactic, idempotent, and does not consult the filesystem. It must not resolve the target, follow target symlinks, or collapse `..` merely because a lexical simplification appears possible.
 
-This gives slink one preferred representation without changing reference semantics.
+Any spelling not changed by the rules above remains unchanged. This gives slink one preferred representation without changing reference semantics.
 
 ## Design invariants
 
@@ -213,19 +213,47 @@ This preserves existing behavior around:
 - missing path components;
 - targets that traverse symlinks.
 
-### Round-trip verification
+### Canonical reference equality
 
-A generated relative candidate is accepted only if it preserves the requested reference under the existing interpretation logic:
+Canonical spelling is part of slink's target model, so reference equality must apply the same canonicalization before link-aware interpretation.
+
+Conceptually:
 
 ```rust
-reference_target(link, candidate) == original_reference
+canonical_reference(link, target) =
+    reference_target(link, canonical_target(target))
 ```
 
-Canonicalization may be applied to the candidate before this check.
+Normal semantic comparison therefore becomes:
+
+```rust
+canonical_reference(link, actual_target)
+    == canonical_reference(link, registered_target)
+```
+
+This is important for canonical pairs such as:
+
+```text
+foo/.  == foo/
+```
+
+Both spellings require `foo` to resolve as a directory, so slink treats them as the same target meaning even though the current low-level path normalizer preserves their different suffix spelling.
+
+This canonical equivalence applies to normal correctness checks only. Transaction recovery continues to compare the exact target text recorded in the pending operation and must not claim a merely equivalent filesystem object.
+
+### Round-trip verification
+
+A generated relative candidate is accepted only if it preserves the requested canonical reference:
+
+```rust
+canonical_reference(link, candidate) == original_canonical_reference
+```
+
+The candidate is canonicalized before this check, and the original requested reference is compared under the same canonical target rules.
 
 If slink cannot produce a safe relative representation, creation fails instead of silently changing meaning.
 
-This reuses `reference_target()` as the authority rather than duplicating path semantics in the relative generator.
+This reuses the existing link-aware reference interpretation as the authority while adding only the small canonical spelling layer required by this design.
 
 ## Adoption
 
@@ -283,12 +311,12 @@ Normal checking continues to compare references rather than raw target strings:
 target_matches(link, actual_target, registered_target)
 ```
 
-Conceptually:
+`target_matches()` must apply canonical target spelling before link-aware reference comparison:
 
 ```text
-reference_target(link, actual_target)
+canonical_reference(link, actual_target)
     ==
-reference_target(link, registered_target)
+canonical_reference(link, registered_target)
 ```
 
 Therefore:
@@ -436,7 +464,9 @@ The target:
 
 slink-generated registry entries are canonical.
 
-A manually edited registry may contain a noncanonical spelling. Validated commands should interpret it through the same target canonicalization before acting on it. A later registry write naturally persists the canonical representation.
+A manually edited registry may contain a noncanonical spelling. Validated commands should interpret that entry through the same target canonicalization before acting on it.
+
+Canonicalization during validation is an in-memory interpretation step. It must not turn an unrelated registry write into a cleanup pass over untouched source entries. Canonical target text is persisted when slink creates or updates that entry; unrelated entries retain their source spelling until they themselves are rewritten.
 
 Read-only source inspection does not need a new behavior solely for this feature; existing `list` semantics can remain unchanged.
 
@@ -515,7 +545,7 @@ The intended change remains narrow:
 | Area | Change |
 | --- | --- |
 | `cli.rs` | Add create-only `-r` / `--relative`; keep `-f` as the explicit representation-enforcement switch |
-| `paths.rs` | Add canonical target spelling and safe absolute-to-relative target materialization; make self-reference relative-aware |
+| `paths.rs` | Add deterministic canonical target spelling, canonical-reference comparison (including `foo/.` == `foo/`), safe absolute-to-relative target materialization, and relative-aware self-reference |
 | `registry.rs` | Allow relative targets and canonicalize target spelling during validation |
 | `engine.rs` | Share create target materialization; adopt canonical observed target; allow forced replacement of textually different equivalent symlinks |
 | `transaction.rs` | Allow relative canonical pending targets; keep exact recovery matching and existing `Replace` recovery |
@@ -540,6 +570,8 @@ The same principle is extended to relative targets.
 
 Registries containing relative targets require a slink version that implements this design; older versions that require absolute registry targets will reject them.
 
+The meaning of `--force` is intentionally broadened for create/fix. Today an already semantically matching symlink is kept before the force branch is considered. Under this design, `-f` may replace a semantically equivalent symlink when its target text differs from the requested or registered canonical representation. For example, `slink -f target link` may convert an equivalent relative symlink to the default absolute representation, and `slink -rf target link` may perform the reverse conversion. Without `-f`, the existing non-rewrite behavior remains.
+
 ## Focused tests
 
 New coverage should stay small and reuse existing path and recovery tests.
@@ -548,10 +580,10 @@ At minimum:
 
 1. `-r` / `--relative` create writes and registers the expected relative target, and missing-link `fix` restores it.
 2. `adopt` of a relative target stores canonical spelling without rewriting an already-correct symlink.
-3. Canonical target spelling removes `./`, interior `/./`, redundant ordinary separators, and normalizes trailing `/.` to `/`, while preserving `..` and the trailing-directory requirement.
-4. A semantically equivalent absolute/relative or noncanonical/canonical pair matches without `-f`; `-f` rewrites it to the requested or registered canonical representation.
-5. Relative generation round-trips correctly when the link parent or target path involves symlinks or missing components.
-6. Relative create and forced representation replacement recover through the existing transaction machinery.
+3. Canonical target spelling deterministically removes `./`, interior `/./`, redundant ordinary separators, and normalizes trailing `/.` to `/`, while preserving `..` and the trailing-directory requirement; canonicalization is idempotent.
+4. A semantically equivalent absolute/relative or noncanonical/canonical pair, including `foo/.` versus `foo/`, matches without `-f`; `-f` rewrites it to the requested or registered canonical representation.
+5. Relative generation round-trips under canonical-reference equality when the link parent or target path involves symlinks, missing components, or a canonicalized directory suffix.
+6. Relative create and forced representation replacement recover through the existing transaction machinery, while exact recovery ownership still rejects a textually different but semantically equivalent target.
 
 Existing tests should continue covering output formatting, dependency ordering, semantic matching, and crash safety.
 
