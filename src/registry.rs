@@ -18,7 +18,7 @@ pub struct Entry {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HomeWriteStyle {
+enum HomeWriteStyle {
     Concrete,
     Expression,
 }
@@ -29,7 +29,7 @@ pub struct Registry {
     pub original: Option<Vec<u8>>,
     pub doc: DocumentMut,
     pub entries: Vec<Entry>,
-    pub home_write_style: HomeWriteStyle,
+    home_write_style: HomeWriteStyle,
 }
 
 impl Registry {
