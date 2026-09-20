@@ -82,6 +82,47 @@ pub fn target_from_cli(s: &str) -> Result<String> {
     Ok(text(&from_cli(s)?)?.to_owned())
 }
 
+// Keep one deterministic spelling for syntax that does not change target
+// meaning. Do not resolve '..' or inspect the filesystem here.
+pub fn canonical_target(target: &str) -> Result<String> {
+    validate_target(target)?;
+    let prefix_len = target.as_bytes().iter().take_while(|&&b| b == b'/').count();
+    let prefix = &target[..prefix_len];
+    let body = &target[prefix_len..];
+    let directory_suffix = target.ends_with('/') || target.ends_with("/.");
+
+    let parts = body
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>();
+
+    let mut out = if prefix_len > 0 {
+        prefix.to_owned()
+    } else {
+        String::new()
+    };
+    for part in parts {
+        if !out.is_empty() && !out.ends_with('/') {
+            out.push('/');
+        }
+        out.push_str(part);
+    }
+
+    if out.is_empty() {
+        out = if prefix_len > 0 {
+            prefix.to_owned()
+        } else if directory_suffix {
+            "./".to_owned()
+        } else {
+            ".".to_owned()
+        };
+    } else if directory_suffix && !out.ends_with('/') {
+        out.push('/');
+    }
+
+    Ok(out)
+}
+
 // readlink() is OS data: a literal '~' is not a home-directory abbreviation.
 // Resolve only the link's containing directory, never the target symlinks.
 pub fn reference_target(link: &Path, target: &str) -> Result<String> {
@@ -94,12 +135,68 @@ pub fn reference_target(link: &Path, target: &str) -> Result<String> {
     Ok(text(&normalize(&path))?.to_owned())
 }
 
+pub fn canonical_reference(link: &Path, target: &str) -> Result<String> {
+    reference_target(link, &canonical_target(target)?)
+}
+
 pub fn target_matches(link: &Path, actual: &str, expected: &str) -> Result<bool> {
-    Ok(reference_target(link, actual)? == reference_target(link, expected)?)
+    Ok(canonical_reference(link, actual)? == canonical_reference(link, expected)?)
+}
+
+fn relative_target(link: &Path, absolute_reference: &str) -> Result<String> {
+    let target = Path::new(absolute_reference);
+    if !target.is_absolute() {
+        bail!("relative target generation needs an absolute reference");
+    }
+    let base = directory_location(link.parent().context("link has no parent")?)?;
+    let base_components = base.components().collect::<Vec<_>>();
+    let target_components = target.components().collect::<Vec<_>>();
+    let common = base_components
+        .iter()
+        .zip(&target_components)
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    if common == 0 {
+        bail!("cannot represent target safely as a relative symlink");
+    }
+
+    let mut candidate = PathBuf::new();
+    for component in &base_components[common..] {
+        if matches!(component, Component::Normal(_)) {
+            candidate.push("..");
+        } else {
+            bail!("cannot represent target safely as a relative symlink");
+        }
+    }
+    for component in &target_components[common..] {
+        candidate.push(component.as_os_str());
+    }
+    if candidate.as_os_str().is_empty() {
+        candidate.push(".");
+    }
+
+    let mut candidate = text(&candidate)?.to_owned();
+    if absolute_reference.ends_with('/') && !candidate.ends_with('/') {
+        candidate.push('/');
+    }
+    canonical_target(&candidate)
+}
+
+pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> Result<String> {
+    let absolute = canonical_target(&target_from_cli(operand)?)?;
+    if !relative {
+        return Ok(absolute);
+    }
+    let candidate = relative_target(link, &absolute)?;
+    if canonical_reference(link, &candidate)? != canonical_reference(link, &absolute)? {
+        bail!("cannot represent target safely as a relative symlink");
+    }
+    Ok(candidate)
 }
 
 pub fn reject_self_reference(link: &Path, target: &str) -> Result<()> {
-    if let Ok(target_key) = key(Path::new(target)) {
+    if let Ok(target_key) = canonical_reference(link, target).and_then(|t| key(Path::new(&t))) {
         if key(link)? == target_key {
             bail!("target refers directly to the link itself: {link:?}");
         }
