@@ -42,25 +42,25 @@ The README describes command arguments and conflict handling in detail.
 
 Three values must remain distinct:
 
-- **Link location:** the directory entry occupied by the symlink.
-- **Registered target:** the absolute reference path stored in the registry.
-- **Observed target:** the string returned by readlink, which may be relative and may use a different spelling from the registered target.
+- **Link location:** the absolute directory entry occupied by the symlink.
+- **Registered target:** canonical target text slink intends to materialize; it may be absolute or relative.
+- **Observed target:** the string returned by readlink, which may use a different but semantically equivalent spelling from the registered target.
 
-The `paths` module converts CLI input to absolute paths. Relative input uses the working directory, and `~` or a leading `~/` uses the home directory.
-Registry values must already be absolute in both fields; reading the registry does not expand `~`.
+The `paths` module interprets CLI operands from the working directory, with `~` or a leading `~/` expanded from the home directory. Create normally materializes the resulting absolute target; `-r` / `--relative` re-encodes the same requested reference from the link's physical containing directory.
+Registry `link` values must be absolute. Registry `target` values may be absolute or relative and never expand `~`.
+
+Canonical target spelling is deterministic and purely syntactic. It removes interior `.`, redundant ordinary separators, a redundant leading `./`, and normalizes trailing `/.` to trailing `/`, while preserving `..`, absolute versus relative form, directory requirements, and symlink-sensitive references.
+Semantic comparison canonicalizes target spelling before link-aware reference interpretation. It does not collapse different symlink chains merely because they eventually reach the same object.
 
 Target references preserve the paths of any symlinks they contain instead of replacing those paths with their final destinations.
 `paths::normalize()` consults the filesystem before collapsing a parent component: it can simplify `ordinary-directory/..`, but preserves `..` after a symlink or a missing or inaccessible component.
-It also preserves target suffixes that require a directory, such as `/` and `/.`.
 Link identity uses the containing directory and the final name without following the link itself, with APFS case sensitivity and Unicode equivalence taken into account.
 
-`adopt` leaves the existing symlink untouched.
-It converts a relative observed target to an absolute reference using the directory containing the link, treating any `~` returned by readlink as a literal filename character.
-`check`, `fix`, and `remove` use the same reference conversion when comparing targets.
-Two different chains of symlinks are not considered equivalent merely because they ultimately reach the same object.
+`adopt` leaves the existing symlink untouched and registers canonical spelling of the observed target text, including a relative target when the symlink is relative.
+`check`, `fix`, and `remove` compare target meaning from the pair `(link, target)`.
+Missing-link `fix` writes the registered target text directly. `fix -f` may also replace a semantically correct symlink whose target text differs from the registered canonical representation.
 
-New and restored symlinks use absolute targets.
-As a result, `fix` can restore the registered reference without reproducing the original relative target string.
+Normal create uses an absolute target representation. `-r` selects a relative representation, and `-f` can enforce the requested representation on an already equivalent symlink.
 
 Display formatting is a separate operation. `display_path()` prepares text for output; its result is never used for path comparison, persistence, or filesystem operations.
 
@@ -72,7 +72,7 @@ Parsing and path validation are separate so that users can inspect entries that 
 
 - `list` uses `Registry::read_entries()` to read stored strings in file order. It can show invalid paths and duplicate registrations without inspecting the links or their targets.
 - `check`, `scan`, and mutation commands use `Registry::open()` to validate paths and detect duplicates across the entire registry.
-- Invalid TOML syntax or entry structure prevents even `list` from reading the file. No partial list is printed, and invalid registry paths are never repaired by guessing from the working directory.
+- Invalid TOML syntax or entry structure prevents even `list` from reading the file. No partial list is printed. Relative registry targets are interpreted from their link location, never guessed from the process working directory.
 
 Human list output formats both stored path strings for readability.
 TSV list output preserves their values exactly after JSON decoding, so scripts can retrieve what was registered.
