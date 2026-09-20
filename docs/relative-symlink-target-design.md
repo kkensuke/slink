@@ -113,17 +113,21 @@ No representation field, materialization layer, or target-style policy is requir
 
 ## Creation
 
-A new create-only option is added:
+A new create-only option is added with both short and long forms:
 
 ```text
---relative
+-r, --relative
 ```
+
+Without this option, create keeps the current behavior and materializes an absolute target string.
+
+With `-r` / `--relative`, create materializes a relative target string from the link location.
 
 Example:
 
 ```sh
 cd /Users/me/project
-slink --relative -p config links/config
+slink -r -p config links/config
 ```
 
 The result is:
@@ -293,27 +297,112 @@ If both resolve to the same reference according to `reference_target()`, `check`
 
 This is intentionally reference equality, not final-inode equality. The design does not canonicalize away meaningful intermediate symlink references.
 
-## Existing equivalent symlinks are not rewritten
+## Output contract
 
-Suppose an absolute symlink already exists:
+Because `target` is persisted representation, machine-readable output should expose its exact registered text rather than a display-normalized spelling.
+
+The TSV contract becomes:
+
+```text
+list TARGET          = exact registered target text
+check TARGET         = exact registered target text
+scan TARGET          = exact registered target text for managed rows
+ACTUAL_TARGET         = exact readlink() text
+```
+
+The existing column names, order, state fields, stdout/stderr split, and JSON quoting remain unchanged.
+
+Human output may continue to use `display_path()` for readability. Human formatting is presentation only and never changes comparison, persistence, or recovery data.
+
+This keeps the distinction simple:
+
+```text
+human output
+    readable path formatting
+
+TSV TARGET
+    exact registry text
+
+TSV ACTUAL_TARGET
+    exact filesystem readlink text
+```
+
+For example, if the registry contains:
+
+```toml
+target = "../a/./b"
+```
+
+then TSV `TARGET` must decode back to exactly `../a/./b`; it must not be displayed as `../a/b`.
+
+This requires updating the current path-display contract, where `check` and managed `scan` format registered targets for display.
+
+## Force and representation enforcement
+
+The requested target has both a semantic reference and an exact target-text representation.
+
+By default, slink avoids rewriting an existing symlink when its semantic reference already matches. The registry may still be updated to the newly requested target text, so a later restoration uses that representation.
+
+`--force` changes this rule: it allows slink to replace an existing symlink whenever its target text differs from the requested target text, including when the old and new strings are semantically equivalent.
+
+Conceptually:
+
+```rust
+if actual.target == requested.target {
+    Keep
+} else if target_matches(link, &actual.target, &requested.target)? {
+    if force {
+        Replace(actual)
+    } else {
+        Keep(actual)
+    }
+} else if force {
+    Replace(actual)
+} else {
+    Conflict
+}
+```
+
+This makes `-r` and `-f` orthogonal:
+
+- `-r` selects relative target text instead of the default absolute target text.
+- `-f` enforces the selected target text when an existing symlink differs.
+
+For example, suppose:
 
 ```text
 links/config -> /Users/me/project/config
 ```
 
-and the user runs a relative creation command that refers to the same target.
+Then:
 
-If the existing symlink is semantically equivalent under `target_matches()`, it should be left untouched.
+```sh
+slink -r config links/config
+```
 
-The registry may be updated to contain the relative target text, so a future missing-link restoration uses the newly requested representation.
+keeps the existing absolute symlink when it already refers to the requested target, but records `../config` so a future restoration is relative.
 
-This proposal does not turn `--relative` into a representation-conversion command.
+By contrast:
 
-Rewriting an already-correct symlink merely to change its textual representation would introduce a separate policy question around replacement, force behavior, inode changes, and transaction ownership.
+```sh
+slink -rf config links/config
+```
+
+replaces the existing symlink with:
+
+```text
+links/config -> ../config
+```
+
+The reverse is symmetric. If an existing relative symlink already refers to the requested target, ordinary create can register the default absolute target without rewriting the symlink, while create with `-f` replaces it with the requested absolute target text.
+
+No separate representation-conversion command is required.
 
 ## Fix
 
-For an existing matching symlink, `fix` keeps the current semantic comparison behavior and leaves it untouched.
+For an existing symlink whose semantic reference matches the registration, ordinary `fix` leaves it untouched even if its target text differs from the registered target text.
+
+`fix -f` enforces the exact registered target text. Therefore it may replace a semantically equivalent symlink whose representation differs from the registry.
 
 For a missing symlink, `fix` writes the stored target text directly:
 
@@ -446,7 +535,11 @@ returns the exact target text that would be stored and written.
 
 The recovery check compares this derived text with `pending.entry.target`.
 
-This avoids adding a redundant representation field to `Pending` or `Request`.
+This avoids adding a redundant materialized-target field to `Pending` or `Request`.
+
+The repeated create command must still be checked using the same materialization logic, so retrying a pending relative create without `-r` produces a different materialized target and is rejected. The pending entry's exact target text remains the authority for what recovery may create.
+
+Representation-only replacement also fits the existing transaction model: it is a normal `Replace` operation authorized by `--force`, so no new transaction operation is needed.
 
 ## Fix dependency ordering
 
@@ -466,41 +559,65 @@ The expected changes are intentionally narrow.
 
 | Area | Change |
 | --- | --- |
-| `cli.rs` | Add create-only `--relative` |
+| `cli.rs` | Add create-only `-r` / `--relative`; document `-f` as enforcing requested or registered target text |
 | `paths.rs` | Add safe relative target generation, round-trip verification, and relative-aware self-reference handling |
 | `registry.rs` | Keep `link` absolute; allow raw relative or absolute `target` text |
-| `engine.rs` | Share create target materialization; make `adopt` store observed target text; use the same materialization for create recovery matching |
-| `transaction.rs` | Stop requiring pending targets to be absolute; preserve direct creation and exact recovery comparison |
+| `engine.rs` | Share create target materialization; make `adopt` store observed target text; make `-f` replace textually different equivalent symlinks; use the same materialization for create recovery matching |
+| `transaction.rs` | Stop requiring pending targets to be absolute; preserve direct creation and exact recovery comparison; reuse normal forced `Replace` recovery for representation enforcement |
+| `output.rs` | Emit exact registered `TARGET` text in TSV `check` and managed `scan` output |
+| output docs/tests | Update the TSV raw-target contract while keeping human display cleanup |
 
-The major command semantics do not need separate relative-target branches for `check`, `remove`, or `fix`.
+`check` and `remove` need no representation-specific branch. `fix` keeps semantic matching by default and uses its existing `--force` path to enforce exact registered target text.
 
 ## Compatibility
 
-Existing registries containing only absolute targets remain valid and keep their current behavior.
-
 No schema migration is required.
 
-A registry containing relative targets is not expected to work with older versions that require registry targets to be absolute.
+Registries generated by existing slink versions contain normalized absolute targets. Those entries remain valid and retain the same effective behavior under this design.
 
-That compatibility boundary should be documented when the feature is implemented.
+There is one representation-level compatibility change for hand-edited registries. Today, validated commands normalize an absolute registry target such as:
+
+```toml
+target = "/a/./b"
+```
+
+Under this design, registry `target` is preserved as target text, so the spelling `/a/./b` remains stored and is the exact string that `fix` may restore. This is intentional: preserving target representation must apply consistently to both absolute and relative targets.
+
+A registry containing relative targets is not expected to work with older slink versions that require registry targets to be absolute.
+
+The implementation documentation should therefore distinguish schema compatibility from representation behavior:
+
+- existing generated registries require no migration;
+- unusual hand-edited absolute target spellings may now be preserved rather than normalized;
+- relative-target registries require a version that implements this design.
 
 ## Tests
 
 The implementation should cover at least the following cases:
 
-1. `--relative` create stores and writes the same relative target text.
-2. Deleting that symlink and running `fix` restores the same relative target text.
-3. Adopting an existing relative symlink preserves its target text through delete and `fix`.
-4. An equivalent absolute symlink matches a registered relative target without being rewritten.
-5. Crash recovery uses exact target-text equality.
-6. Repeated create after a crash derives the same materialized target as the pending operation.
-7. Relative conversion preserves target references that pass through symlinks.
-8. Meaningful `..` components retain their semantics.
-9. Missing targets can still be represented safely.
-10. Trailing `/` and `/.` behavior is preserved.
-11. A symlink in the link's parent path is handled using the actual containing directory.
-12. Direct self-reference is rejected for relative targets.
-13. A generated candidate that fails round-trip verification is rejected.
+1. `-r` and `--relative` are equivalent and create stores and writes the same relative target text.
+2. Create without `-r` keeps the existing default of absolute target text.
+3. Deleting a relative symlink and running `fix` restores the same relative target text.
+4. Adopting an existing relative symlink preserves its target text through delete and `fix`.
+5. An equivalent absolute symlink plus `-r` is not rewritten without `-f`, while the registry records the relative target.
+6. The same operation with `-rf` replaces the symlink with the requested relative target text.
+7. An equivalent relative symlink plus default create is not rewritten without `-f`, while the registry records the absolute target.
+8. The same operation with `-f` replaces the symlink with the requested absolute target text.
+9. Ordinary `fix` keeps a semantically matching symlink whose target text differs; `fix -f` rewrites it to the exact registered target text.
+10. Crash recovery uses exact target-text equality.
+11. Recovery of a forced representation-only replacement uses the normal `Replace` transaction path.
+12. Repeated create after a crash derives the same materialized target as the pending operation, and changing `-r` is rejected.
+13. TSV `TARGET` for list, check, and managed scan decodes to the exact registered target text.
+14. Human target output may apply display cleanup without changing stored text.
+15. Existing generated absolute-target registries remain valid without migration.
+16. A hand-edited non-canonical absolute target preserves its spelling instead of being normalized.
+17. Relative conversion preserves target references that pass through symlinks.
+18. Meaningful `..` components retain their semantics.
+19. Missing targets can still be represented safely.
+20. Trailing `/` and `/.` behavior is preserved.
+21. A symlink in the link's parent path is handled using the actual containing directory.
+22. Direct self-reference is rejected for relative targets.
+23. A generated candidate that fails round-trip verification is rejected.
 
 Existing crash-recovery and dependency-order tests should be extended rather than replaced.
 
@@ -514,13 +631,19 @@ registry:
     target = what text belongs inside that symlink
 ```
 
-Creation chooses the target representation once.
+Creation chooses the desired target representation: absolute by default, relative with `-r`.
 
-`adopt` observes it.
+Without `-f`, an already equivalent symlink is left untouched while the registry may adopt the newly requested representation.
 
-`fix` restores it.
+With `-f`, create enforces the requested target text and `fix -f` enforces the registered target text.
+
+`adopt` observes the existing target text.
+
+`fix` restores stored target text when creation is needed.
 
 `check` and `remove` compare what the target means.
+
+TSV exposes exact stored and observed target strings; human output may format them for readability.
 
 Transaction recovery compares exactly what the transaction wrote.
 
