@@ -129,7 +129,7 @@ impl Registry {
         for (index, entry) in self.entries.iter_mut().enumerate() {
             (|| {
                 paths::validate_link(&entry.link)?;
-                let link = paths::registry_path(&entry.link, "link")?;
+                let link = paths::registry_link_path(&entry.link)?;
                 entry.link = paths::text(&link)?.to_owned();
                 entry.target = paths::canonical_target(&entry.target)?;
                 if !seen_paths.insert(link.clone()) {
@@ -147,7 +147,7 @@ impl Registry {
         Ok(self)
     }
     pub fn link(&self, entry: &Entry) -> Result<PathBuf> {
-        paths::registry_path(&entry.link, "link")
+        paths::registry_link_path(&entry.link)
     }
     pub fn find(&self, p: &Path) -> Result<Option<usize>> {
         for (i, e) in self.entries.iter().enumerate() {

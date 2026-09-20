@@ -70,16 +70,12 @@ pub fn from_cli(s: &str) -> Result<PathBuf> {
     absolute(&path)
 }
 
-pub fn registry_path(s: &str, field: &str) -> Result<PathBuf> {
+pub fn registry_link_path(s: &str) -> Result<PathBuf> {
     validate_target(s)?;
     if !Path::new(s).is_absolute() {
-        bail!("registry {field} must be an absolute path: {s:?}");
+        bail!("registry link must be an absolute path: {s:?}");
     }
     Ok(normalize(Path::new(s)))
-}
-
-pub fn target_from_cli(s: &str) -> Result<String> {
-    Ok(text(&from_cli(s)?)?.to_owned())
 }
 
 // Keep one deterministic spelling for syntax that does not change target
@@ -125,18 +121,14 @@ pub fn canonical_target(target: &str) -> Result<String> {
 
 // readlink() is OS data: a literal '~' is not a home-directory abbreviation.
 // Resolve only the link's containing directory, never the target symlinks.
-pub fn reference_target(link: &Path, target: &str) -> Result<String> {
-    validate_target(target)?;
-    let path = if Path::new(target).is_absolute() {
-        PathBuf::from(target)
+fn canonical_reference(link: &Path, target: &str) -> Result<String> {
+    let target = canonical_target(target)?;
+    let path = if Path::new(&target).is_absolute() {
+        PathBuf::from(&target)
     } else {
-        directory_location(link.parent().context("link has no parent")?)?.join(target)
+        directory_location(link.parent().context("link has no parent")?)?.join(&target)
     };
     Ok(text(&normalize(&path))?.to_owned())
-}
-
-pub fn canonical_reference(link: &Path, target: &str) -> Result<String> {
-    reference_target(link, &canonical_target(target)?)
 }
 
 pub fn target_matches(link: &Path, actual: &str, expected: &str) -> Result<bool> {
@@ -184,7 +176,8 @@ fn relative_target(link: &Path, absolute_reference: &str) -> Result<String> {
 }
 
 pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> Result<String> {
-    let absolute = canonical_target(&target_from_cli(operand)?)?;
+    let absolute_path = from_cli(operand)?;
+    let absolute = canonical_target(text(&absolute_path)?)?;
     if !relative {
         return Ok(absolute);
     }
@@ -195,7 +188,7 @@ pub fn materialize_create_target(link: &Path, operand: &str, relative: bool) -> 
     {
         bail!("cannot represent target safely as a relative symlink");
     }
-    // A missing parent cannot round-trip through reference_target(): its
+    // A missing parent cannot round-trip through canonical_reference(): its
     // conservative normalization intentionally preserves '..' across missing
     // components. relative_target() uses directory_location(), whose missing
     // suffix is restricted to ordinary names, so the candidate becomes valid

@@ -52,7 +52,7 @@ For a relative target, its path meaning comes from the pair:
 Conceptually:
 
 ```text
-reference = reference_target(link, target)
+reference = canonical_reference(link, target)
 ```
 
 No additional persistent field is needed:
@@ -221,7 +221,7 @@ Conceptually:
 
 ```rust
 canonical_reference(link, target) =
-    reference_target(link, canonical_target(target))
+    link_aware_reference(link, canonical_target(target))
 ```
 
 Normal semantic comparison therefore becomes:
@@ -251,7 +251,7 @@ canonical_reference(link, candidate) == original_canonical_reference
 
 The candidate is canonicalized before this check, and the original requested reference is compared under the same canonical target rules.
 
-A missing link-parent suffix is the one deliberate exception to that pre-creation round trip. Existing `reference_target()` intentionally refuses to collapse `..` across missing components, while `create -p` will materialize those missing components as ordinary directories before creating the symlink. In that case relative generation uses the physical existing ancestor plus the ordinary missing suffix returned by `directory_location()`; normal create planning still rejects the missing parent unless `-p` is supplied.
+A missing link-parent suffix is the one deliberate exception to that pre-creation round trip. The existing link-aware reference interpretation intentionally refuses to collapse `..` across missing components, while `create -p` will materialize those missing components as ordinary directories before creating the symlink. In that case relative generation uses the physical existing ancestor plus the ordinary missing suffix returned by `directory_location()`; normal create planning still rejects the missing parent unless `-p` is supplied.
 
 If an existing parent cannot round-trip safely, creation fails instead of silently changing meaning.
 
