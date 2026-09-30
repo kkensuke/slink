@@ -2,7 +2,9 @@
 
 [English](README.md) | [日本語](README.ja.md)
 
-`slink` is a CLI tool for macOS and Linux that safely creates and manages symbolic links based on a TOML file.
+**Keep track of your symlinks. Check them. Recreate missing ones.**
+
+`slink` is a CLI tool for macOS and Linux that safely creates and manages symbolic links in a human-readable TOML registry. Create new links or register existing ones, check their state, and recreate missing links from the registry.
 
 ## Install
 
