@@ -4,7 +4,13 @@
 
 **Keep track of your symlinks. Check them. Recreate missing ones.**
 
-`slink` is a CLI tool for macOS and Linux that safely creates and manages symbolic links in a human-readable TOML registry. Create new links or register existing ones, check their state, and recreate missing links from the registry.
+`slink` is a CLI tool for macOS and Linux that creates and manages symbolic links in a human-readable TOML registry. Use it to keep track of links across your filesystem, including links you already have.
+
+- **Create or adopt:** create new links or register existing ones without moving their targets.
+- **Check and recreate:** inspect registered links and recreate missing ones from the registry.
+- **Preview changes:** use `-n` before applying changes. Existing regular files and directories at the link location are never replaced, even with `-f`.
+
+[Install](#install) · [Quick start](#quick-start) · [Use existing links](#use-existing-links) · [Commands](#commands) · [Options](#options) · [Limitations and recovery](#limitations-and-recovery)
 
 ## Install
 
@@ -20,7 +26,122 @@ cd slink
 cargo install --path . --locked
 ```
 
-## Quick start `slink <target> <link>`
+Check the installed version:
+
+```sh
+slink --version
+```
+
+## Quick start
+
+After installing slink, run the following commands in the same shell. The example uses a new temporary directory and registers one sample link in your normal slink registry.
+
+Create a sample file, then create and check a link to it:
+
+```sh
+slink_demo="$(mktemp -d)"
+printf 'Hello, slink!\n' > "$slink_demo/hello.txt"
+slink "$slink_demo/hello.txt" "$slink_demo/hello-link.txt"
+slink check "$slink_demo/hello-link.txt"
+```
+
+Now delete only the link; the target file stays in place:
+
+```sh
+rm "$slink_demo/hello-link.txt"
+slink check "$slink_demo/hello-link.txt"
+```
+
+`check` reports the missing link and exits with code `1`. This is expected here. Preview its recreation, apply it, and read the file through the link again:
+
+```sh
+slink fix -n "$slink_demo/hello-link.txt"
+slink fix "$slink_demo/hello-link.txt"
+cat "$slink_demo/hello-link.txt"
+```
+
+The last command prints `Hello, slink!`. `fix` recreates the registered link; it does not recover deleted target files or their contents.
+
+When you have finished, remove the sample link and its registration, then remove the sample file and directory:
+
+```sh
+slink remove "$slink_demo/hello-link.txt"
+rm "$slink_demo/hello.txt"
+rmdir "$slink_demo"
+```
+
+For your own files, use `slink <target> <link>`; see [Creating links](#creating-links) for path handling and conflict behavior.
+
+## Use existing links
+
+You can start with links you already use. If `~/.config/nvim` is an existing symlink you want to manage, preview its registration, register it, and check it:
+
+```sh
+slink adopt -n ~/.config/nvim
+slink adopt ~/.config/nvim
+slink check ~/.config/nvim
+```
+
+`adopt` records the existing symlink's location and current target without changing the symlink. Use [`scan`](#find-symlinks-with-scan) to find links, and `unregister` to stop managing a link while keeping it in place.
+
+## Commands
+
+```text
+slink [options] <target> <link>
+slink --config
+slink list
+slink check [link ...]
+slink fix [options] [link ...]
+slink unregister [options] <link ...>
+slink remove [options] <link ...>
+slink adopt [options] <link ...>
+slink scan [options] [directory ...]
+```
+
+| Command | Purpose |
+| --- | --- |
+| `slink <target> <link>` | Create a symlink to the specified target and add or update its registration |
+| `slink --config` | Print the registry file's location |
+| `slink list` | Display registrations without inspecting symlinks |
+| `slink check [link ...]` | Compare symlinks with their registrations and check whether their targets are reachable |
+| `slink fix [link ...]` | Restore symlinks from the registry; replacing an existing symlink with a different target requires `-f` |
+| `slink unregister <link ...>` | Unregister symlinks without changing anything at their locations |
+| `slink remove <link ...>` | Delete symlinks that match their registrations and unregister them; leave target files and directories untouched |
+| `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing the symlinks |
+| `slink scan [directory ...]` | Find symlinks directly inside the specified directories; defaults to the working directory |
+
+`check` and `fix` process all registrations if no symlink is specified. `unregister`, `remove`, and `adopt` require explicit symlink paths.
+
+## Options
+
+| Short | Long | Purpose |
+| --- | --- | --- |
+| `-c` | `--config` | Print the registry file's location |
+| `-f` | `--force` | Create/`fix`: replace different symlinks or enforce the requested/registered target representation |
+| `-r` | `--relative` | Create: store and create a relative target representation |
+| `-p` | `--parents` | Create/`fix`: create missing parent directories for symlinks |
+| `-n` | `--dry-run` | Create/`fix`/`unregister`/`remove`/`adopt`: preview changes without writing |
+| `-R` | `--recursive` | `scan`: include subdirectories |
+| `-o` | `--format <human\|tsv>` | `list`/`check`/`scan`: choose the output format |
+| `-h` | `--help` | Show help |
+| `-V` | `--version` | Show the version |
+
+Short flags can be combined, such as `-np`. Use `--config`, `--help`, and `--version` on their own.
+
+To pass a path with the same name as a command or option, put `--` before it:
+
+```sh
+slink -- list ./list-link
+slink check -- -link
+```
+
+The first command uses the file `list` in the working directory as its target. The second checks the registered symlink named `-link`.
+
+<a id="quick-start-slink-target-link"></a>
+
+## Creating links
+
+Syntax: `slink <target> <link>`
 
 `<target>` is the path to point to, and `<link>` is where to create the symlink. Relative paths are interpreted from the directory in which you run the command (the working directory).
 
@@ -67,34 +188,6 @@ slink check
 
 You can create a symlink to a target that does not exist, but `check` reports a problem until the target becomes reachable.
 
-## Commands
-
-```text
-slink [options] <target> <link>
-slink --config
-slink list
-slink check [link ...]
-slink fix [options] [link ...]
-slink unregister [options] <link ...>
-slink remove [options] <link ...>
-slink adopt [options] <link ...>
-slink scan [options] [directory ...]
-```
-
-| Command | Purpose |
-| --- | --- |
-| `slink <target> <link>` | Create a symlink to the specified target and add or update its registration |
-| `slink --config` | Print the registry file's location |
-| `slink list` | Display registrations without inspecting symlinks |
-| `slink check [link ...]` | Compare symlinks with their registrations and check whether their targets are reachable |
-| `slink fix [link ...]` | Restore symlinks from the registry; replacing an existing symlink with a different target requires `-f` |
-| `slink unregister <link ...>` | Unregister symlinks without changing anything at their locations |
-| `slink remove <link ...>` | Delete symlinks that match their registrations and unregister them; leave target files and directories untouched |
-| `slink adopt <link ...>` | Add or update registrations from existing symlinks without changing the symlinks |
-| `slink scan [directory ...]` | Find symlinks directly inside the specified directories; defaults to the working directory |
-
-`check` and `fix` process all registrations if no symlink is specified. `unregister`, `remove`, and `adopt` require explicit symlink paths.
-
 ### If the location already exists `slink -f <target> <link>`
 
 | What exists at the location | Normal creation | Creation with `-f` |
@@ -104,6 +197,17 @@ slink scan [options] [directory ...]
 | A symlink with the same target meaning but different target text | Keep the symlink; add or update its registration | Replace it with the requested canonical representation |
 | A symlink with a different target path | Report a conflict | Replace the symlink; add or update its registration |
 | A regular file, directory, or other object | Report a conflict and leave it untouched | Same |
+
+## Find symlinks with `scan`
+
+```sh
+slink scan
+slink scan -R ~/projects
+slink scan ~/links
+```
+
+- `scan` searches directly inside the specified directories. It defaults to the working directory when none is specified. Add `-R` to include subdirectories. Symlinks to directories are displayed, but their contents are not scanned. You also cannot use a symlink as a starting directory.
+- While `check` inspects registered symlinks, `scan` can also find unregistered ones. Use `adopt` to register a symlink you find. Registering a symlink to a directory does not register symlinks inside that directory.
 
 ## Paths
 
@@ -143,11 +247,13 @@ The registry is normally `~/.config/slink/links.toml`. If `XDG_CONFIG_HOME` is s
 
 Creating a symlink or running `adopt` creates the registry file if needed. `scan` can run without a registry file.
 
-To open the registry for viewing or editing:
+On macOS, open the registry for viewing or editing with:
 
 ```sh
 open "$(slink --config)"
 ```
+
+On Linux, open the path printed by `slink --config` in your preferred editor.
 
 Write one `[[link]]` block per registration, containing the string fields `link` and `target`. `link` must resolve to an absolute path; `target` may be absolute or relative and is interpreted from the link's containing directory. A leading `${HOME}` or `${HOME}/...` is expanded while the registry is validated. An empty file represents no registrations.
 
@@ -172,42 +278,6 @@ The accepted values are `"concrete"` (default) and `"expression"`. Expression mo
 Use `unregister` to stop managing a symlink while keeping it in place. To delete both the symlink and its registration, use `remove` before deleting the entry. To update a registration to match a manually changed symlink, use `adopt`.
 
 If the registry file is itself a symlink, slink updates the file it points to.
-
-## Options
-
-| Short | Long | Purpose |
-| --- | --- | --- |
-| `-c` | `--config` | Print the registry file's location |
-| `-f` | `--force` | Create/`fix`: replace different symlinks or enforce the requested/registered target representation |
-| `-r` | `--relative` | Create: store and create a relative target representation |
-| `-p` | `--parents` | Create/`fix`: create missing parent directories for symlinks |
-| `-n` | `--dry-run` | Create/`fix`/`unregister`/`remove`/`adopt`: preview changes without writing |
-| `-R` | `--recursive` | `scan`: include subdirectories |
-| `-o` | `--format <human\|tsv>` | `list`/`check`/`scan`: choose the output format |
-| `-h` | `--help` | Show help |
-| `-V` | `--version` | Show the version |
-
-Short flags can be combined, such as `-np`. Use `--config`, `--help`, and `--version` on their own.
-
-To pass a path with the same name as a command or option, put `--` before it:
-
-```sh
-slink -- list ./list-link
-slink check -- -link
-```
-
-The first command uses the file `list` in the working directory as its target. The second checks the registered symlink named `-link`.
-
-## Find symlinks with `scan`
-
-```sh
-slink scan
-slink scan -R ~/projects
-slink scan ~/links
-```
-
-- `scan` searches directly inside the specified directories. It defaults to the working directory when none is specified. Add `-R` to include subdirectories. Symlinks to directories are displayed, but their contents are not scanned. You also cannot use a symlink as a starting directory.
-- While `check` inspects registered symlinks, `scan` can also find unregistered ones. Use `adopt` to register a symlink you find. Registering a symlink to a directory does not register symlinks inside that directory.
 
 ## Output
 
