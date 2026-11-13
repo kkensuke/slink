@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     name: Verify tagged release
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Check out the source
